@@ -39,7 +39,7 @@ pub struct CommonHookFields {
 // ============================================================================
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BeforeSubmitPromptInput {
     // Common fields
     pub conversation_id: String,
@@ -55,7 +55,7 @@ pub struct BeforeSubmitPromptInput {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Attachment {
     #[serde(rename = "type")]
     pub attachment_type: Option<String>,
@@ -63,7 +63,7 @@ pub struct Attachment {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BeforeReadFileInput {
     // Common fields
     pub conversation_id: String,
@@ -80,7 +80,7 @@ pub struct BeforeReadFileInput {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BeforeTabFileReadInput {
     // Common fields
     pub conversation_id: String,
@@ -325,6 +325,9 @@ async fn before_submit_prompt_handler(
     let is_blocked = !all_detections.is_empty();
     let token_count = total_token_count;
 
+    // Serialize full input for request_body (before moving fields)
+    let request_body_json = serde_json::to_string(&input).unwrap_or_default();
+
     // Build extra metadata
     let metadata = CursorHookMetadata {
         conversation_id: input.conversation_id,
@@ -346,6 +349,13 @@ async fn before_submit_prompt_handler(
         None
     };
 
+    // Build response
+    let response = BeforeSubmitPromptResponse {
+        should_continue: !is_blocked,
+        user_message: user_message.clone(),
+    };
+    let response_body_json = serde_json::to_string(&response).unwrap_or_default();
+
     // Log to database
     if let Ok(request_id) = state.db.log_cursor_hook_request(
         &input.generation_id,
@@ -353,21 +363,18 @@ async fn before_submit_prompt_handler(
         &input.model,
         token_count,
         0, // output_tokens will be updated later
-        &input.prompt,
-        if is_blocked { "BLOCKED" } else { "" },
+        &request_body_json,
+        &response_body_json,
         response_status,
         metadata_json.as_deref(),
+        None, // request_headers (not applicable for cursor hooks)
+        None, // response_headers (not applicable for cursor hooks)
     ) {
         // Log DLP detections if any
         if !all_detections.is_empty() {
             let _ = state.db.log_dlp_detections(request_id, &all_detections);
         }
     }
-
-    let response = BeforeSubmitPromptResponse {
-        should_continue: !is_blocked,
-        user_message,
-    };
 
     (StatusCode::OK, Json(response))
 }
@@ -382,6 +389,9 @@ async fn before_read_file_handler(
         "[CURSOR_HOOK] before_read_file - generation_id: {}, file: {}",
         input.generation_id, input.file_path
     );
+
+    // Serialize full input for request_body (before moving any fields)
+    let request_body_json = serde_json::to_string(&input).unwrap_or_default();
 
     // Get content: prefer provided content, fallback to reading file
     let content = match input.content {
@@ -473,6 +483,14 @@ async fn before_read_file_handler(
     };
     let metadata_json = serde_json::to_string(&metadata).ok();
 
+    // Build response
+    let response = BeforeReadFileResponse {
+        permission: permission.clone(),
+        user_message: user_message.clone(),
+        agent_message: agent_message.clone(),
+    };
+    let response_body_json = serde_json::to_string(&response).unwrap_or_default();
+
     // Log blocked file reads to database
     if is_blocked {
         let token_count = estimate_tokens(&content);
@@ -481,23 +499,19 @@ async fn before_read_file_handler(
         if let Ok(request_id) = state.db.log_cursor_hook_request(
             &input.generation_id,
             "CursorChat",
-            "",
+            &input.model,
             token_count,
             0,
-            &format!("File read: {}", input.file_path),
-            "BLOCKED - file read denied",
+            &request_body_json,
+            &response_body_json,
             response_status,
             metadata_json.as_deref(),
+            None, // request_headers (not applicable for cursor hooks)
+            None, // response_headers (not applicable for cursor hooks)
         ) {
             let _ = state.db.log_dlp_detections(request_id, &all_detections);
         }
     }
-
-    let response = BeforeReadFileResponse {
-        permission,
-        user_message,
-        agent_message,
-    };
 
     (StatusCode::OK, Json(response))
 }
@@ -512,6 +526,9 @@ async fn before_tab_file_read_handler(
         "[CURSOR_HOOK] before_tab_file_read - generation_id: {}, file: {}",
         input.generation_id, input.file_path
     );
+
+    // Serialize full input for request_body (before moving any fields)
+    let request_body_json = serde_json::to_string(&input).unwrap_or_default();
 
     // Get content: prefer provided content, fallback to reading file
     let content = match input.content {
@@ -553,6 +570,12 @@ async fn before_tab_file_read_handler(
     };
     let metadata_json = serde_json::to_string(&metadata).ok();
 
+    // Build response
+    let response = BeforeTabFileReadResponse {
+        permission: if is_blocked { "deny" } else { "allow" }.to_string(),
+    };
+    let response_body_json = serde_json::to_string(&response).unwrap_or_default();
+
     // Log to database
     let token_count = estimate_tokens(&content);
     let response_status = if is_blocked { 403 } else { 200 };
@@ -563,19 +586,17 @@ async fn before_tab_file_read_handler(
         &input.model,
         token_count,
         0,
-        &format!("Tab file read: {}", input.file_path),
-        if is_blocked { "BLOCKED" } else { "allowed" },
+        &request_body_json,
+        &response_body_json,
         response_status,
         metadata_json.as_deref(),
+        None, // request_headers (not applicable for cursor hooks)
+        None, // response_headers (not applicable for cursor hooks)
     ) {
         if !detections.is_empty() {
             let _ = state.db.log_dlp_detections(request_id, &detections);
         }
     }
-
-    let response = BeforeTabFileReadResponse {
-        permission: if is_blocked { "deny" } else { "allow" }.to_string(),
-    };
 
     (StatusCode::OK, Json(response))
 }

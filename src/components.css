@@ -329,6 +329,44 @@
   color: #333;
 }
 
+.json-modal-tabs {
+  display: flex;
+  gap: 0;
+  padding: 0 20px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f8f9fa;
+}
+
+.json-modal-tab {
+  padding: 12px 20px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #666;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.json-modal-tab:hover {
+  color: #4f46e5;
+}
+
+.json-modal-tab.active {
+  color: #4f46e5;
+  border-bottom-color: #4f46e5;
+  background: #fff;
+}
+
+.json-modal-tab-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 .json-modal-body {
   padding: 20px;
   overflow: auto;
@@ -339,6 +377,15 @@
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.json-modal-body.tab-panel {
+  display: none;
+  flex: 1;
+}
+
+.json-modal-body.tab-panel.active {
+  display: block;
 }
 
 /* ============ Charts Grid ============ */

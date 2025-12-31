@@ -41,7 +41,9 @@ impl Database {
                 is_streaming INTEGER NOT NULL DEFAULT 0,
                 request_body TEXT,
                 response_body TEXT,
-                extra_metadata TEXT
+                extra_metadata TEXT,
+                request_headers TEXT,
+                response_headers TEXT
             )",
             [],
         )?;
@@ -49,6 +51,18 @@ impl Database {
         // Migration: Add extra_metadata column if it doesn't exist (for existing databases)
         let _ = conn.execute(
             "ALTER TABLE requests ADD COLUMN extra_metadata TEXT",
+            [],
+        );
+
+        // Migration: Add request_headers column if it doesn't exist (for existing databases)
+        let _ = conn.execute(
+            "ALTER TABLE requests ADD COLUMN request_headers TEXT",
+            [],
+        );
+
+        // Migration: Add response_headers column if it doesn't exist (for existing databases)
+        let _ = conn.execute(
+            "ALTER TABLE requests ADD COLUMN response_headers TEXT",
             [],
         );
 
@@ -122,6 +136,8 @@ impl Database {
         req_meta: &RequestMetadata,
         resp_meta: &ResponseMetadata,
         extra_metadata: Option<&str>,
+        request_headers: Option<&str>,
+        response_headers: Option<&str>,
     ) -> Result<i64, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let timestamp = chrono::Utc::now().to_rfc3339();
@@ -132,8 +148,9 @@ impl Database {
                 input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
                 latency_ms, has_system_prompt, has_tools, has_thinking, stop_reason,
                 user_message_count, assistant_message_count,
-                response_status, is_streaming, request_body, response_body, extra_metadata
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+                response_status, is_streaming, request_body, response_body, extra_metadata,
+                request_headers, response_headers
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
             rusqlite::params![
                 timestamp,
                 backend,
@@ -157,6 +174,8 @@ impl Database {
                 request_body,
                 response_body,
                 extra_metadata,
+                request_headers,
+                response_headers,
             ],
         )?;
 
@@ -207,6 +226,8 @@ impl Database {
         response_body: &str,
         response_status: u16,
         extra_metadata: Option<&str>,
+        request_headers: Option<&str>,
+        response_headers: Option<&str>,
     ) -> Result<i64, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let timestamp = chrono::Utc::now().to_rfc3339();
@@ -239,8 +260,9 @@ impl Database {
                 input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
                 latency_ms, has_system_prompt, has_tools, has_thinking, stop_reason,
                 user_message_count, assistant_message_count,
-                response_status, is_streaming, request_body, response_body, extra_metadata
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+                response_status, is_streaming, request_body, response_body, extra_metadata,
+                request_headers, response_headers
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
             rusqlite::params![
                 timestamp,
                 "cursor-hooks",
@@ -264,6 +286,8 @@ impl Database {
                 request_body,
                 response_body,
                 extra_metadata,
+                request_headers,
+                response_headers,
             ],
         )?;
 

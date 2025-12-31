@@ -62,18 +62,23 @@ function renderLogsTable(logs) {
   `;
 }
 
-// Show JSON modal
-function showJsonModal(title, jsonStr) {
+// Format JSON string for display
+function formatJson(jsonStr) {
+  try {
+    const parsed = JSON.parse(jsonStr);
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return jsonStr || 'null';
+  }
+}
+
+// Show JSON modal with tabbed view (Headers/Body)
+function showJsonModal(title, headersStr, bodyStr) {
   const existing = document.getElementById('json-modal');
   if (existing) existing.remove();
 
-  let formatted = '';
-  try {
-    const parsed = JSON.parse(jsonStr);
-    formatted = JSON.stringify(parsed, null, 2);
-  } catch {
-    formatted = jsonStr || 'null';
-  }
+  const formattedHeaders = formatJson(headersStr);
+  const formattedBody = formatJson(bodyStr);
 
   const modal = document.createElement('div');
   modal.id = 'json-modal';
@@ -84,10 +89,31 @@ function showJsonModal(title, jsonStr) {
         <h3>${title}</h3>
         <button class="json-modal-close">&times;</button>
       </div>
-      <pre class="json-modal-body">${escapeHtml(formatted)}</pre>
+      <div class="json-modal-tabs">
+        <button class="json-modal-tab active" data-tab="headers">Headers</button>
+        <button class="json-modal-tab" data-tab="body">Body</button>
+      </div>
+      <div class="json-modal-tab-content">
+        <pre class="json-modal-body tab-panel active" data-panel="headers">${escapeHtml(formattedHeaders)}</pre>
+        <pre class="json-modal-body tab-panel" data-panel="body">${escapeHtml(formattedBody)}</pre>
+      </div>
     </div>
   `;
   document.body.appendChild(modal);
+
+  // Tab switching logic
+  modal.querySelectorAll('.json-modal-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const tabName = tab.dataset.tab;
+      // Update active tab button
+      modal.querySelectorAll('.json-modal-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      // Update active panel
+      modal.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      modal.querySelector(`.tab-panel[data-panel="${tabName}"]`).classList.add('active');
+    });
+  });
+
   modal.querySelector('.json-modal-close').addEventListener('click', () => modal.remove());
   modal.addEventListener('click', (e) => {
     if (e.target === modal) modal.remove();
@@ -110,8 +136,9 @@ export async function loadMessageLogs() {
         const type = btn.dataset.type;
         const log = currentLogs[index];
         const title = type === 'request' ? `Request #${log.id}` : `Response #${log.id}`;
-        const jsonStr = type === 'request' ? log.request_body : log.response_body;
-        showJsonModal(title, jsonStr);
+        const headersStr = type === 'request' ? log.request_headers : log.response_headers;
+        const bodyStr = type === 'request' ? log.request_body : log.response_body;
+        showJsonModal(title, headersStr, bodyStr);
       });
     });
   } catch (error) {

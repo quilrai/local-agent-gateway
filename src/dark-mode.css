@@ -125,6 +125,25 @@
     color: #e8e8e8;
   }
 
+  .json-modal-tabs {
+    background: #12121f;
+    border-bottom-color: #2a2a3e;
+  }
+
+  .json-modal-tab {
+    color: #888;
+  }
+
+  .json-modal-tab:hover {
+    color: #818cf8;
+  }
+
+  .json-modal-tab.active {
+    color: #818cf8;
+    border-bottom-color: #818cf8;
+    background: #1a1a2e;
+  }
+
   /* Settings */
   .setting-row {
     border-bottom-color: #2a2a3e;

@@ -53,6 +53,8 @@ pub struct MessageLog {
     latency_ms: i64,
     request_body: Option<String>,
     response_body: Option<String>,
+    request_headers: Option<String>,
+    response_headers: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -314,7 +316,8 @@ pub fn get_message_logs(time_range: String, backend: String) -> Result<Vec<Messa
     let mut stmt = conn
         .prepare(&format!(
             "SELECT id, timestamp, backend, COALESCE(model, 'unknown'),
-                    input_tokens, output_tokens, latency_ms, request_body, response_body
+                    input_tokens, output_tokens, latency_ms, request_body, response_body,
+                    request_headers, response_headers
              FROM requests
              WHERE {} AND timestamp >= ?1{}
              ORDER BY id DESC
@@ -335,6 +338,8 @@ pub fn get_message_logs(time_range: String, backend: String) -> Result<Vec<Messa
                 latency_ms: row.get(6)?,
                 request_body: row.get(7)?,
                 response_body: row.get(8)?,
+                request_headers: row.get(9)?,
+                response_headers: row.get(10)?,
             })
         })
         .map_err(|e| e.to_string())?

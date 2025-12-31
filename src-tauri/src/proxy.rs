@@ -18,12 +18,31 @@ use axum::{
 use flate2::read::GzDecoder;
 use futures::StreamExt;
 use reqwest::Client;
+use std::collections::HashMap;
 use std::io::Read;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
+
+/// Convert axum HeaderMap to JSON string
+fn headers_to_json(headers: &HeaderMap) -> String {
+    let map: HashMap<String, String> = headers
+        .iter()
+        .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect();
+    serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string())
+}
+
+/// Convert reqwest HeaderMap to JSON string
+fn reqwest_headers_to_json(headers: &reqwest::header::HeaderMap) -> String {
+    let map: HashMap<String, String> = headers
+        .iter()
+        .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect();
+    serde_json::to_string(&map).unwrap_or_else(|_| "{}".to_string())
+}
 
 /// Decompress gzip data
 fn decompress_gzip(data: &[u8]) -> Option<String> {
@@ -171,6 +190,8 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request) -> impl In
         let dlp_replacements_clone = dlp_replacements.clone();
         let dlp_detections_clone = dlp_result.detections.clone();
         let headers_clone = headers.clone();
+        let request_headers_json = headers_to_json(&headers);
+        let response_headers_json = reqwest_headers_to_json(&resp_headers);
 
         let collected_chunks: Arc<std::sync::Mutex<Vec<String>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -233,6 +254,8 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request) -> impl In
                     &req_meta_clone,
                     &resp_meta,
                     extra_meta.as_deref(),
+                    Some(&request_headers_json),
+                    Some(&response_headers_json),
                 ) {
                     // Log DLP detections if any
                     if !dlp_detections_clone.is_empty() {
@@ -287,6 +310,10 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request) -> impl In
                 &headers,
             );
 
+            // Convert headers to JSON
+            let request_headers_json = headers_to_json(&headers);
+            let response_headers_json = reqwest_headers_to_json(&resp_headers);
+
             if let Ok(request_id) = db.log_request(
                 backend.name(),
                 &method_str,
@@ -300,6 +327,8 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request) -> impl In
                 &req_meta,
                 &resp_meta,
                 extra_meta.as_deref(),
+                Some(&request_headers_json),
+                Some(&response_headers_json),
             ) {
                 // Log DLP detections if any
                 if !dlp_result.detections.is_empty() {
