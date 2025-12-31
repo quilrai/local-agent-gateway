@@ -123,29 +123,16 @@
             <div class="card">
               <div class="card-header">DLP Settings</div>
               <div class="card-body">
-                <h3 class="settings-subheading">Pattern based DLP</h3>
-
-                <div class="dlp-section">
-                  <h4 class="dlp-section-title">Built-in Patterns</h4>
-                  <div class="dlp-pattern-list" id="builtin-patterns">
-                    <label class="dlp-pattern-item">
-                      <input type="checkbox" id="dlp-api-keys" class="dlp-checkbox" />
-                      <span class="dlp-pattern-name">API Keys</span>
-                      <span class="dlp-pattern-badge builtin">Built-in</span>
-                    </label>
-                  </div>
-                </div>
-
                 <div class="dlp-section">
                   <div class="dlp-section-header">
-                    <h4 class="dlp-section-title">Custom Patterns</h4>
+                    <h4 class="dlp-section-title">DLP Patterns</h4>
                     <button id="add-pattern-btn" class="btn btn-secondary btn-sm">
                       <i data-lucide="plus"></i>
                       Add Pattern
                     </button>
                   </div>
-                  <div class="dlp-pattern-list" id="custom-patterns">
-                    <p class="empty-text">No custom patterns added</p>
+                  <div class="dlp-pattern-list" id="dlp-patterns">
+                    <p class="empty-text">Loading patterns...</p>
                   </div>
                 </div>
 
@@ -173,35 +160,81 @@
           </div>
         </div>
 
-        <!-- Add Pattern Modal -->
-        <div id="add-pattern-modal" class="modal">
-          <div class="modal-content">
+        <!-- Add/Edit Pattern Modal -->
+        <div id="pattern-modal" class="modal">
+          <div class="modal-content modal-content-lg">
             <div class="modal-header">
-              <h3>Add Pattern</h3>
+              <h3 id="pattern-modal-title">Add Pattern</h3>
               <button class="modal-close" id="close-pattern-modal">&times;</button>
             </div>
             <div class="modal-body">
+              <input type="hidden" id="pattern-id" value="" />
+
               <div class="form-group">
                 <label for="pattern-name">Name</label>
                 <input type="text" id="pattern-name" class="form-input" placeholder="e.g., AWS Secrets" />
               </div>
-              <div class="form-group">
-                <label>Type</label>
-                <div class="radio-group">
-                  <label class="radio-item">
-                    <input type="radio" name="pattern-type" value="keyword" checked />
-                    <span>Keywords</span>
-                  </label>
-                  <label class="radio-item">
-                    <input type="radio" name="pattern-type" value="regex" />
-                    <span>Regex</span>
-                  </label>
+
+              <div class="form-row">
+                <div class="form-group form-group-half">
+                  <label>Pattern Type</label>
+                  <div class="radio-group">
+                    <label class="radio-item">
+                      <input type="radio" name="pattern-type" value="keyword" checked />
+                      <span>Keywords</span>
+                    </label>
+                    <label class="radio-item">
+                      <input type="radio" name="pattern-type" value="regex" />
+                      <span>Regex</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="form-group form-group-half">
+                  <label>Validation</label>
+                  <div class="form-inline">
+                    <div class="form-inline-item">
+                      <label for="min-unique-chars" class="form-label-sm">Min Unique Chars</label>
+                      <input type="number" id="min-unique-chars" class="form-input form-input-sm" min="0" value="0" />
+                    </div>
+                    <div class="form-inline-item">
+                      <label for="min-occurrences" class="form-label-sm">Min Occurrences</label>
+                      <input type="number" id="min-occurrences" class="form-input form-input-sm" min="1" value="1" />
+                    </div>
+                  </div>
                 </div>
               </div>
+
               <div class="form-group">
                 <label for="pattern-values">Patterns <span class="form-hint">(one per line)</span></label>
                 <textarea id="pattern-values" class="form-textarea" rows="4" placeholder="Enter keywords or regex patterns, one per line"></textarea>
               </div>
+
+              <details class="form-details">
+                <summary>Negative Patterns (Exclusions)</summary>
+                <div class="form-details-content">
+                  <div class="form-group">
+                    <label>Negative Pattern Type</label>
+                    <div class="radio-group">
+                      <label class="radio-item">
+                        <input type="radio" name="negative-pattern-type" value="" checked />
+                        <span>None</span>
+                      </label>
+                      <label class="radio-item">
+                        <input type="radio" name="negative-pattern-type" value="keyword" />
+                        <span>Keywords</span>
+                      </label>
+                      <label class="radio-item">
+                        <input type="radio" name="negative-pattern-type" value="regex" />
+                        <span>Regex</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label for="negative-pattern-values">Negative Patterns <span class="form-hint">(matches excluded)</span></label>
+                    <textarea id="negative-pattern-values" class="form-textarea" rows="3" placeholder="Enter patterns to exclude from detection"></textarea>
+                  </div>
+                </div>
+              </details>
             </div>
             <div class="modal-footer">
               <button class="btn btn-secondary" id="cancel-pattern-btn">Cancel</button>

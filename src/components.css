@@ -209,6 +209,85 @@
   color: #333;
 }
 
+/* Form Layout */
+.form-row {
+  display: flex;
+  gap: 16px;
+}
+
+.form-group-half {
+  flex: 1;
+}
+
+.form-inline {
+  display: flex;
+  gap: 12px;
+}
+
+.form-inline-item {
+  flex: 1;
+}
+
+.form-label-sm {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.form-input-sm {
+  padding: 6px 10px;
+  font-size: 0.85rem;
+}
+
+.form-input:disabled {
+  background: #f5f5f5;
+  color: #888;
+  cursor: not-allowed;
+}
+
+/* Collapsible details */
+.form-details {
+  margin-top: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.form-details summary {
+  padding: 12px 16px;
+  font-weight: 500;
+  font-size: 0.9rem;
+  color: #555;
+  cursor: pointer;
+  background: #f8f9fa;
+  border-radius: 8px;
+  list-style: none;
+}
+
+.form-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.form-details summary::before {
+  content: '+ ';
+  font-weight: 600;
+  color: #888;
+}
+
+.form-details[open] summary {
+  border-radius: 8px 8px 0 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.form-details[open] summary::before {
+  content: '- ';
+}
+
+.form-details-content {
+  padding: 16px;
+}
+
 /* ============ Modals ============ */
 
 .modal {
@@ -233,7 +312,13 @@
   border-radius: 12px;
   width: 90%;
   max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal-content-lg {
+  max-width: 600px;
 }
 
 .modal-header {

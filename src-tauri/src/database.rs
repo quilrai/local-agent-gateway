@@ -4,7 +4,23 @@ use crate::dlp::DlpDetection;
 use crate::dlp_pattern_config::{DB_PATH, DEFAULT_PORT};
 use crate::requestresponsemetadata::{RequestMetadata, ResponseMetadata};
 use rusqlite::Connection;
+use serde::Deserialize;
 use std::sync::{Arc, Mutex};
+
+/// Builtin pattern definition from JSON
+#[derive(Deserialize)]
+struct BuiltinPattern {
+    name: String,
+    pattern_type: String,
+    patterns: Vec<String>,
+    negative_pattern_type: Option<String>,
+    negative_patterns: Option<Vec<String>>,
+    min_occurrences: i32,
+    min_unique_chars: i32,
+}
+
+/// Embedded builtin patterns JSON
+const BUILTIN_PATTERNS_JSON: &str = include_str!("../builtin_patterns.json");
 
 /// Thread-safe database wrapper
 #[derive(Clone)]
@@ -82,11 +98,19 @@ impl Database {
                 name TEXT NOT NULL,
                 pattern_type TEXT NOT NULL,
                 patterns TEXT NOT NULL,
+                negative_pattern_type TEXT,
+                negative_patterns TEXT,
                 enabled INTEGER DEFAULT 1,
+                min_occurrences INTEGER DEFAULT 1,
+                min_unique_chars INTEGER DEFAULT 0,
+                is_builtin INTEGER DEFAULT 0,
                 created_at TEXT NOT NULL
             )",
             [],
         )?;
+
+        // Seed builtin patterns if not exists
+        Self::seed_builtin_patterns(&conn)?;
 
         // Create DLP detections table
         conn.execute(
@@ -107,6 +131,67 @@ impl Database {
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
+    }
+
+    /// Seed builtin DLP patterns, overwriting if they already exist
+    fn seed_builtin_patterns(conn: &Connection) -> Result<(), rusqlite::Error> {
+        // Parse builtin patterns from embedded JSON
+        let builtin_patterns: Vec<BuiltinPattern> =
+            serde_json::from_str(BUILTIN_PATTERNS_JSON).unwrap_or_default();
+
+        let created_at = chrono::Utc::now().to_rfc3339();
+
+        for pattern in builtin_patterns {
+            let patterns_json =
+                serde_json::to_string(&pattern.patterns).unwrap_or_else(|_| "[]".to_string());
+            let negative_patterns_json = pattern
+                .negative_patterns
+                .as_ref()
+                .map(|np| serde_json::to_string(np).unwrap_or_else(|_| "[]".to_string()));
+
+            // Check if this builtin pattern already exists
+            let existing_id: Option<i64> = conn
+                .query_row(
+                    "SELECT id FROM dlp_patterns WHERE is_builtin = 1 AND name = ?1",
+                    rusqlite::params![&pattern.name],
+                    |row| row.get(0),
+                )
+                .ok();
+
+            if let Some(id) = existing_id {
+                // Update existing pattern (preserve enabled state)
+                conn.execute(
+                    "UPDATE dlp_patterns SET pattern_type = ?1, patterns = ?2, negative_pattern_type = ?3, negative_patterns = ?4, min_occurrences = ?5, min_unique_chars = ?6 WHERE id = ?7",
+                    rusqlite::params![
+                        pattern.pattern_type,
+                        patterns_json,
+                        pattern.negative_pattern_type,
+                        negative_patterns_json,
+                        pattern.min_occurrences,
+                        pattern.min_unique_chars,
+                        id
+                    ],
+                )?;
+            } else {
+                // Insert new pattern
+                conn.execute(
+                    "INSERT INTO dlp_patterns (name, pattern_type, patterns, negative_pattern_type, negative_patterns, enabled, min_occurrences, min_unique_chars, is_builtin, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7, 1, ?8)",
+                    rusqlite::params![
+                        pattern.name,
+                        pattern.pattern_type,
+                        patterns_json,
+                        pattern.negative_pattern_type,
+                        negative_patterns_json,
+                        pattern.min_occurrences,
+                        pattern.min_unique_chars,
+                        created_at
+                    ],
+                )?;
+            }
+        }
+
+        Ok(())
     }
 
     /// Clean up data older than 7 days

@@ -1,14 +1,14 @@
 // DLP (Data Loss Prevention) Redaction Logic
 
-use crate::dlp_pattern_config::{BUILTIN_API_KEY_PATTERNS, DB_PATH};
+use crate::dlp_pattern_config::DB_PATH;
 use regex::Regex;
 use rusqlite::Connection;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug)]
 pub struct DlpDetection {
     pub pattern_name: String,
-    pub pattern_type: String, // "builtin" or "keyword" or "regex"
+    pub pattern_type: String, // "keyword" or "regex"
     pub original_value: String,
     pub placeholder: String,
     pub message_index: Option<i32>,
@@ -21,72 +21,58 @@ pub struct DlpRedactionResult {
     pub detections: Vec<DlpDetection>,
 }
 
+/// Compiled DLP pattern with all validation rules
+#[derive(Clone)]
+pub struct CompiledDlpPattern {
+    pub name: String,
+    pub pattern_type: String,
+    pub regexes: Vec<Regex>,
+    pub negative_regexes: Vec<Regex>,
+    pub min_occurrences: i32,
+    pub min_unique_chars: i32,
+}
+
 /// Get all enabled DLP patterns from database
-/// Returns: Vec of (name, pattern_type, regexes)
-pub fn get_enabled_dlp_patterns() -> Vec<(String, String, Vec<Regex>)> {
-    let mut patterns: Vec<(String, String, Vec<Regex>)> = Vec::new();
+pub fn get_enabled_dlp_patterns() -> Vec<CompiledDlpPattern> {
+    let mut patterns: Vec<CompiledDlpPattern> = Vec::new();
 
-    // Check if API keys detection is enabled
-    let api_keys_enabled = {
-        let conn = match Connection::open(DB_PATH) {
-            Ok(c) => c,
-            Err(_) => return patterns,
-        };
-        conn.query_row(
-            "SELECT value FROM settings WHERE key = 'dlp_api_keys_enabled'",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .ok()
-        .map(|v| v == "1")
-        .unwrap_or(false)
-    };
-
-    if api_keys_enabled {
-        let mut regexes = Vec::new();
-        for pattern in BUILTIN_API_KEY_PATTERNS {
-            if let Ok(re) = Regex::new(pattern) {
-                regexes.push(re);
-            }
-        }
-        if !regexes.is_empty() {
-            patterns.push(("API Keys".to_string(), "builtin".to_string(), regexes));
-        }
-    }
-
-    // Get custom patterns from database
     let conn = match Connection::open(DB_PATH) {
         Ok(c) => c,
         Err(_) => return patterns,
     };
 
     let mut stmt = match conn.prepare(
-        "SELECT name, pattern_type, patterns FROM dlp_patterns WHERE enabled = 1",
+        "SELECT name, pattern_type, patterns, negative_pattern_type, negative_patterns,
+                min_occurrences, min_unique_chars
+         FROM dlp_patterns WHERE enabled = 1",
     ) {
         Ok(s) => s,
         Err(_) => return patterns,
     };
 
-    let custom_patterns: Vec<(String, String, String)> = stmt
+    let db_patterns: Vec<(String, String, String, Option<String>, Option<String>, i32, i32)> = stmt
         .query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, i32>(5)?,
+                row.get::<_, i32>(6)?,
             ))
         })
         .ok()
         .map(|iter| iter.filter_map(|r| r.ok()).collect())
         .unwrap_or_default();
 
-    for (name, pattern_type, patterns_json) in custom_patterns {
-        let pattern_list: Vec<String> =
-            serde_json::from_str(&patterns_json).unwrap_or_default();
+    for (name, pattern_type, patterns_json, negative_pattern_type, negative_patterns_json, min_occurrences, min_unique_chars) in db_patterns {
+        let pattern_list: Vec<String> = serde_json::from_str(&patterns_json).unwrap_or_default();
 
+        // Compile positive patterns
         let mut regexes = Vec::new();
         for p in pattern_list {
             let regex_pattern = if pattern_type == "keyword" {
-                // Escape special regex chars and match as literal, case-insensitive
                 format!(r"(?i){}", regex::escape(&p))
             } else {
                 p
@@ -97,12 +83,53 @@ pub fn get_enabled_dlp_patterns() -> Vec<(String, String, Vec<Regex>)> {
             }
         }
 
+        // Compile negative patterns
+        let mut negative_regexes = Vec::new();
+        if let Some(neg_json) = negative_patterns_json {
+            let neg_pattern_list: Vec<String> = serde_json::from_str(&neg_json).unwrap_or_default();
+            let neg_type = negative_pattern_type.as_deref().unwrap_or("regex");
+
+            for p in neg_pattern_list {
+                let regex_pattern = if neg_type == "keyword" {
+                    format!(r"(?i){}", regex::escape(&p))
+                } else {
+                    p
+                };
+
+                if let Ok(re) = Regex::new(&regex_pattern) {
+                    negative_regexes.push(re);
+                }
+            }
+        }
+
         if !regexes.is_empty() {
-            patterns.push((name, pattern_type, regexes));
+            patterns.push(CompiledDlpPattern {
+                name,
+                pattern_type,
+                regexes,
+                negative_regexes,
+                min_occurrences,
+                min_unique_chars,
+            });
         }
     }
 
     patterns
+}
+
+/// Count unique characters in a string
+fn count_unique_chars(s: &str) -> usize {
+    s.chars().collect::<HashSet<_>>().len()
+}
+
+/// Check if a match should be excluded by negative patterns
+fn is_excluded_by_negative(matched: &str, negative_regexes: &[Regex]) -> bool {
+    for neg_re in negative_regexes {
+        if neg_re.is_match(matched) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Apply DLP redaction to request body (only user messages, not system)
@@ -228,7 +255,7 @@ pub fn apply_dlp_redaction(body: &str) -> DlpRedactionResult {
 /// Recursively redact all string values in a JSON structure
 fn redact_value_recursive(
     value: &mut serde_json::Value,
-    patterns: &[(String, String, Vec<Regex>)],
+    patterns: &[CompiledDlpPattern],
     replacements: &mut HashMap<String, String>,
     detections: &mut Vec<DlpDetection>,
     counter: &mut u32,
@@ -304,7 +331,7 @@ fn create_placeholder(id: u32, original: &str) -> String {
 /// Redact text and track replacements
 fn redact_text(
     text: &str,
-    patterns: &[(String, String, Vec<Regex>)],
+    patterns: &[CompiledDlpPattern],
     replacements: &mut HashMap<String, String>,
     detections: &mut Vec<DlpDetection>,
     counter: &mut u32,
@@ -313,50 +340,87 @@ fn redact_text(
     let mut result = text.to_string();
     let text_len = text.len();
 
-    for (name, pattern_type, regexes) in patterns {
+    for pattern in patterns {
         println!(
             "[DLP-T] Checking pattern '{}' ({} regexes) against text of len {}",
-            name,
-            regexes.len(),
+            pattern.name,
+            pattern.regexes.len(),
             text_len
         );
-        for (regex_idx, regex) in regexes.iter().enumerate() {
+
+        // Collect all matches from all regexes for this pattern
+        let mut all_matches: Vec<String> = Vec::new();
+        for (regex_idx, regex) in pattern.regexes.iter().enumerate() {
             if text_len > 1000 {
-                println!("[DLP-T] Running regex {} of {}", regex_idx + 1, regexes.len());
+                println!("[DLP-T] Running regex {} of {}", regex_idx + 1, pattern.regexes.len());
             }
-            // Find all matches and replace them
             let matches: Vec<String> = regex
                 .find_iter(&result)
                 .map(|m| m.as_str().to_string())
                 .collect();
+            all_matches.extend(matches);
+        }
 
-            for matched in matches {
-                // Check if we already have a placeholder for this exact value
-                let (placeholder, is_new) = replacements
-                    .iter()
-                    .find(|(_, v)| *v == &matched)
-                    .map(|(k, _)| (k.clone(), false))
-                    .unwrap_or_else(|| {
-                        // Create same-length fake key that looks realistic
-                        let p = create_placeholder(*counter, &matched);
-                        replacements.insert(p.clone(), matched.clone());
-                        *counter += 1;
-                        (p, true)
-                    });
+        // Check min_occurrences threshold
+        if (all_matches.len() as i32) < pattern.min_occurrences {
+            println!(
+                "[DLP-T] Pattern '{}' has {} matches, below min_occurrences {}",
+                pattern.name,
+                all_matches.len(),
+                pattern.min_occurrences
+            );
+            continue;
+        }
 
-                // Track detection (only for new placeholders to avoid duplicates)
-                if is_new {
-                    detections.push(DlpDetection {
-                        pattern_name: name.clone(),
-                        pattern_type: pattern_type.clone(),
-                        original_value: matched.clone(),
-                        placeholder: placeholder.clone(),
-                        message_index,
-                    });
+        for matched in all_matches {
+            // Validate min_unique_chars
+            if pattern.min_unique_chars > 0 {
+                let unique_count = count_unique_chars(&matched);
+                if (unique_count as i32) < pattern.min_unique_chars {
+                    println!(
+                        "[DLP-T] Match '{}' has {} unique chars, below min {} - skipping",
+                        &matched[..matched.len().min(20)],
+                        unique_count,
+                        pattern.min_unique_chars
+                    );
+                    continue;
                 }
-
-                result = result.replace(&matched, &placeholder);
             }
+
+            // Check negative patterns (exclusions)
+            if is_excluded_by_negative(&matched, &pattern.negative_regexes) {
+                println!(
+                    "[DLP-T] Match '{}' excluded by negative pattern - skipping",
+                    &matched[..matched.len().min(20)]
+                );
+                continue;
+            }
+
+            // Check if we already have a placeholder for this exact value
+            let (placeholder, is_new) = replacements
+                .iter()
+                .find(|(_, v)| *v == &matched)
+                .map(|(k, _)| (k.clone(), false))
+                .unwrap_or_else(|| {
+                    // Create same-length fake key that looks realistic
+                    let p = create_placeholder(*counter, &matched);
+                    replacements.insert(p.clone(), matched.clone());
+                    *counter += 1;
+                    (p, true)
+                });
+
+            // Track detection (only for new placeholders to avoid duplicates)
+            if is_new {
+                detections.push(DlpDetection {
+                    pattern_name: pattern.name.clone(),
+                    pattern_type: pattern.pattern_type.clone(),
+                    original_value: matched.clone(),
+                    placeholder: placeholder.clone(),
+                    message_index,
+                });
+            }
+
+            result = result.replace(&matched, &placeholder);
         }
     }
 
@@ -389,30 +453,52 @@ pub fn check_dlp_patterns(text: &str) -> Vec<DlpDetection> {
     }
 
     let mut detections: Vec<DlpDetection> = Vec::new();
-    let mut seen_values: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut seen_values: HashSet<String> = HashSet::new();
 
-    for (name, pattern_type, regexes) in patterns {
-        for regex in regexes {
+    for pattern in patterns {
+        // Collect all matches from all regexes for this pattern
+        let mut all_matches: Vec<String> = Vec::new();
+        for regex in &pattern.regexes {
             let matches: Vec<String> = regex
                 .find_iter(text)
                 .map(|m| m.as_str().to_string())
                 .collect();
+            all_matches.extend(matches);
+        }
 
-            for matched in matches {
-                // Skip duplicates
-                if seen_values.contains(&matched) {
+        // Check min_occurrences threshold
+        if (all_matches.len() as i32) < pattern.min_occurrences {
+            continue;
+        }
+
+        for matched in all_matches {
+            // Skip duplicates
+            if seen_values.contains(&matched) {
+                continue;
+            }
+
+            // Validate min_unique_chars
+            if pattern.min_unique_chars > 0 {
+                let unique_count = count_unique_chars(&matched);
+                if (unique_count as i32) < pattern.min_unique_chars {
                     continue;
                 }
-                seen_values.insert(matched.clone());
-
-                detections.push(DlpDetection {
-                    pattern_name: name.clone(),
-                    pattern_type: pattern_type.clone(),
-                    original_value: matched,
-                    placeholder: String::new(), // Not used for detection-only
-                    message_index: None,
-                });
             }
+
+            // Check negative patterns (exclusions)
+            if is_excluded_by_negative(&matched, &pattern.negative_regexes) {
+                continue;
+            }
+
+            seen_values.insert(matched.clone());
+
+            detections.push(DlpDetection {
+                pattern_name: pattern.name.clone(),
+                pattern_type: pattern.pattern_type.clone(),
+                original_value: matched,
+                placeholder: String::new(), // Not used for detection-only
+                message_index: None,
+            });
         }
     }
 

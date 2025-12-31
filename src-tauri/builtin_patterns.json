@@ -1,0 +1,30 @@
+[
+  {
+    "name": "API Keys",
+    "pattern_type": "regex",
+    "patterns": [
+      "sk-[a-zA-Z0-9]{20,}",
+      "sk-ant-[a-zA-Z0-9\\-_]{20,}",
+      "sk-proj-[a-zA-Z0-9\\-_]{20,}",
+      "AKIA[0-9A-Z]{16}",
+      "ghp_[a-zA-Z0-9]{36}",
+      "gho_[a-zA-Z0-9]{36}",
+      "ghu_[a-zA-Z0-9]{36}",
+      "ghs_[a-zA-Z0-9]{36}",
+      "ghr_[a-zA-Z0-9]{36}",
+      "xox[baprs]-[a-zA-Z0-9\\-]{10,}",
+      "sk_live_[a-zA-Z0-9]{24,}",
+      "sk_test_[a-zA-Z0-9]{24,}",
+      "pk_live_[a-zA-Z0-9]{24,}",
+      "pk_test_[a-zA-Z0-9]{24,}",
+      "AIza[0-9A-Za-z\\-_]{35}",
+      "ya29\\.[0-9A-Za-z\\-_]+",
+      "-----BEGIN\\s+(RSA\\s+)?PRIVATE\\s+KEY-----",
+      "-----BEGIN\\s+OPENSSH\\s+PRIVATE\\s+KEY-----"
+    ],
+    "negative_pattern_type": null,
+    "negative_patterns": null,
+    "min_occurrences": 1,
+    "min_unique_chars": 10
+  }
+]

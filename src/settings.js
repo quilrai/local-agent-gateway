@@ -99,42 +99,51 @@ async function savePortSetting() {
 
 // ============ DLP Settings ============
 
+// Store patterns for editing
+let dlpPatterns = [];
+
 // Load DLP settings
 async function loadDlpSettings() {
   try {
     const settings = await invoke('get_dlp_settings');
-
-    // Update built-in API keys checkbox
-    const apiKeysCheckbox = document.getElementById('dlp-api-keys');
-    if (apiKeysCheckbox) {
-      apiKeysCheckbox.checked = settings.api_keys_enabled;
-    }
-
-    // Render custom patterns
-    renderCustomPatterns(settings.custom_patterns);
+    dlpPatterns = settings.patterns || [];
+    renderPatterns(dlpPatterns);
   } catch (error) {
     console.error('Failed to load DLP settings:', error);
+    const container = document.getElementById('dlp-patterns');
+    if (container) {
+      container.innerHTML = '<p class="empty-text">Failed to load patterns</p>';
+    }
   }
 }
 
-// Render custom patterns list
-function renderCustomPatterns(patterns) {
-  const container = document.getElementById('custom-patterns');
+// Render all patterns (builtin + custom)
+function renderPatterns(patterns) {
+  const container = document.getElementById('dlp-patterns');
   if (!container) return;
 
   if (patterns.length === 0) {
-    container.innerHTML = '<p class="empty-text">No custom patterns added</p>';
+    container.innerHTML = '<p class="empty-text">No patterns configured</p>';
     return;
   }
 
   container.innerHTML = patterns.map(pattern => `
     <div class="dlp-pattern-item" data-id="${pattern.id}">
-      <input type="checkbox" class="dlp-checkbox dlp-custom-toggle" data-id="${pattern.id}" ${pattern.enabled ? 'checked' : ''} />
+      <input type="checkbox" class="dlp-checkbox dlp-pattern-toggle" data-id="${pattern.id}" ${pattern.enabled ? 'checked' : ''} />
       <span class="dlp-pattern-name">${escapeHtml(pattern.name)}</span>
-      <span class="dlp-pattern-badge ${pattern.pattern_type}">${pattern.pattern_type}</span>
-      <button class="dlp-pattern-delete" data-id="${pattern.id}" title="Delete pattern">
-        <i data-lucide="trash-2"></i>
-      </button>
+      <span class="dlp-pattern-badge ${pattern.is_builtin ? 'builtin' : pattern.pattern_type}">${pattern.is_builtin ? 'Built-in' : pattern.pattern_type}</span>
+      ${pattern.min_unique_chars > 0 ? `<span class="dlp-pattern-meta">Unique chars >= ${pattern.min_unique_chars}</span>` : ''}
+      ${pattern.min_occurrences > 1 ? `<span class="dlp-pattern-meta">Occurrence >= ${pattern.min_occurrences}</span>` : ''}
+      <div class="dlp-pattern-actions">
+        <button class="dlp-pattern-edit" data-id="${pattern.id}" title="Edit pattern">
+          <i data-lucide="pencil"></i>
+        </button>
+        ${!pattern.is_builtin ? `
+          <button class="dlp-pattern-delete" data-id="${pattern.id}" title="Delete pattern">
+            <i data-lucide="trash-2"></i>
+          </button>
+        ` : ''}
+      </div>
     </div>
   `).join('');
 
@@ -142,7 +151,7 @@ function renderCustomPatterns(patterns) {
   lucide.createIcons();
 
   // Add event listeners for toggles
-  container.querySelectorAll('.dlp-custom-toggle').forEach(checkbox => {
+  container.querySelectorAll('.dlp-pattern-toggle').forEach(checkbox => {
     checkbox.addEventListener('change', async (e) => {
       e.stopPropagation();
       const id = parseInt(checkbox.dataset.id);
@@ -151,6 +160,18 @@ function renderCustomPatterns(patterns) {
       } catch (error) {
         console.error('Failed to toggle pattern:', error);
         checkbox.checked = !checkbox.checked;
+      }
+    });
+  });
+
+  // Add event listeners for edit buttons
+  container.querySelectorAll('.dlp-pattern-edit').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = parseInt(btn.dataset.id);
+      const pattern = dlpPatterns.find(p => p.id === id);
+      if (pattern) {
+        showPatternModal(pattern);
       }
     });
   });
@@ -165,45 +186,79 @@ function renderCustomPatterns(patterns) {
           await invoke('delete_dlp_pattern', { id });
           loadDlpSettings();
         } catch (error) {
-          console.error('Failed to delete pattern:', error);
+          alert(`Failed to delete: ${error}`);
         }
       }
     });
   });
 }
 
-// Show add pattern modal
-function showAddPatternModal() {
-  const modal = document.getElementById('add-pattern-modal');
+// Show pattern modal (add or edit)
+function showPatternModal(pattern = null) {
+  const modal = document.getElementById('pattern-modal');
+  const title = document.getElementById('pattern-modal-title');
+  const nameInput = document.getElementById('pattern-name');
+
+  // Set title
+  title.textContent = pattern ? 'Edit Pattern' : 'Add Pattern';
+
+  // Reset/populate form
+  document.getElementById('pattern-id').value = pattern ? pattern.id : '';
+  nameInput.value = pattern ? pattern.name : '';
+  nameInput.disabled = pattern?.is_builtin || false;
+
+  // Pattern type
+  const patternType = pattern?.pattern_type || 'keyword';
+  document.querySelector(`input[name="pattern-type"][value="${patternType}"]`).checked = true;
+
+  // Patterns
+  document.getElementById('pattern-values').value = pattern?.patterns?.join('\n') || '';
+
+  // Validation
+  document.getElementById('min-unique-chars').value = pattern?.min_unique_chars || 0;
+  document.getElementById('min-occurrences').value = pattern?.min_occurrences || 1;
+
+  // Negative patterns
+  const negType = pattern?.negative_pattern_type || '';
+  document.querySelector(`input[name="negative-pattern-type"][value="${negType}"]`).checked = true;
+  document.getElementById('negative-pattern-values').value = pattern?.negative_patterns?.join('\n') || '';
+
   modal.classList.add('show');
 
-  // Reset form
-  document.getElementById('pattern-name').value = '';
-  document.getElementById('pattern-values').value = '';
-  document.querySelector('input[name="pattern-type"][value="keyword"]').checked = true;
-
-  // Focus name input
-  setTimeout(() => document.getElementById('pattern-name').focus(), 100);
+  // Focus name input (if not disabled)
+  if (!nameInput.disabled) {
+    setTimeout(() => nameInput.focus(), 100);
+  }
 }
 
-// Hide add pattern modal
-function hideAddPatternModal() {
-  const modal = document.getElementById('add-pattern-modal');
+// Hide pattern modal
+function hidePatternModal() {
+  const modal = document.getElementById('pattern-modal');
   modal.classList.remove('show');
+  document.getElementById('pattern-name').disabled = false;
 }
 
-// Save new pattern
-async function saveNewPattern() {
-  const name = document.getElementById('pattern-name').value.trim();
-  const patternType = document.querySelector('input[name="pattern-type"]:checked').value;
-  const patternsText = document.getElementById('pattern-values').value;
-
-  // Parse patterns (one per line, filter empty lines)
-  const patterns = patternsText
+// Parse text lines into array
+function parseLines(text) {
+  return text
     .split('\n')
     .map(p => p.trim())
     .filter(p => p.length > 0);
+}
 
+// Save pattern (add or update)
+async function savePattern() {
+  const id = document.getElementById('pattern-id').value;
+  const name = document.getElementById('pattern-name').value.trim();
+  const patternType = document.querySelector('input[name="pattern-type"]:checked').value;
+  const patterns = parseLines(document.getElementById('pattern-values').value);
+  const minUniqueChars = parseInt(document.getElementById('min-unique-chars').value) || 0;
+  const minOccurrences = parseInt(document.getElementById('min-occurrences').value) || 1;
+
+  const negativePatternType = document.querySelector('input[name="negative-pattern-type"]:checked').value || null;
+  const negativePatterns = parseLines(document.getElementById('negative-pattern-values').value);
+
+  // Validation
   if (!name) {
     alert('Please enter a name');
     return;
@@ -219,8 +274,31 @@ async function saveNewPattern() {
   saveBtn.textContent = 'Saving...';
 
   try {
-    await invoke('add_dlp_pattern', { name, patternType, patterns });
-    hideAddPatternModal();
+    if (id) {
+      // Update existing pattern
+      await invoke('update_dlp_pattern', {
+        id: parseInt(id),
+        name,
+        patternType,
+        patterns,
+        negativePatternType: negativePatternType || '',
+        negativePatterns: negativePatterns.length > 0 ? negativePatterns : [],
+        minOccurrences,
+        minUniqueChars
+      });
+    } else {
+      // Add new pattern
+      await invoke('add_dlp_pattern', {
+        name,
+        patternType,
+        patterns,
+        negativePatternType,
+        negativePatterns: negativePatterns.length > 0 ? negativePatterns : null,
+        minOccurrences,
+        minUniqueChars
+      });
+    }
+    hidePatternModal();
     loadDlpSettings();
   } catch (error) {
     alert(`Failed to save: ${error}`);
@@ -232,49 +310,36 @@ async function saveNewPattern() {
 
 // Initialize DLP settings
 function initDlpSettings() {
-  // Built-in API keys toggle
-  const apiKeysCheckbox = document.getElementById('dlp-api-keys');
-  if (apiKeysCheckbox) {
-    apiKeysCheckbox.addEventListener('change', async () => {
-      try {
-        await invoke('set_dlp_builtin', { key: 'api_keys', enabled: apiKeysCheckbox.checked });
-      } catch (error) {
-        console.error('Failed to update API keys setting:', error);
-        apiKeysCheckbox.checked = !apiKeysCheckbox.checked;
-      }
-    });
-  }
-
   // Add pattern button
   const addPatternBtn = document.getElementById('add-pattern-btn');
   if (addPatternBtn) {
-    addPatternBtn.addEventListener('click', showAddPatternModal);
+    addPatternBtn.addEventListener('click', () => showPatternModal());
   }
 
   // Modal close buttons
   const closeModalBtn = document.getElementById('close-pattern-modal');
   const cancelBtn = document.getElementById('cancel-pattern-btn');
-  if (closeModalBtn) closeModalBtn.addEventListener('click', hideAddPatternModal);
-  if (cancelBtn) cancelBtn.addEventListener('click', hideAddPatternModal);
+  if (closeModalBtn) closeModalBtn.addEventListener('click', hidePatternModal);
+  if (cancelBtn) cancelBtn.addEventListener('click', hidePatternModal);
 
   // Modal save button
   const savePatternBtn = document.getElementById('save-pattern-btn');
   if (savePatternBtn) {
-    savePatternBtn.addEventListener('click', saveNewPattern);
+    savePatternBtn.addEventListener('click', savePattern);
   }
 
   // Close modal on backdrop click
-  const modal = document.getElementById('add-pattern-modal');
+  const modal = document.getElementById('pattern-modal');
   if (modal) {
     modal.addEventListener('click', (e) => {
-      if (e.target === modal) hideAddPatternModal();
+      if (e.target === modal) hidePatternModal();
     });
   }
 
   // Close modal on Escape key
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && modal?.classList.contains('show')) {
-      hideAddPatternModal();
+      hidePatternModal();
     }
   });
 

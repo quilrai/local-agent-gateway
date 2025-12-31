@@ -419,6 +419,23 @@
   color: #92400e;
 }
 
+.dlp-pattern-meta {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  font-family: monospace;
+  background: #f0f0f0;
+  color: #666;
+}
+
+.dlp-pattern-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.dlp-pattern-edit,
 .dlp-pattern-delete {
   background: none;
   border: none;
@@ -432,11 +449,17 @@
   transition: all 0.2s;
 }
 
+.dlp-pattern-edit:hover {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
 .dlp-pattern-delete:hover {
   background: #fee2e2;
   color: #dc2626;
 }
 
+.dlp-pattern-edit svg,
 .dlp-pattern-delete svg {
   width: 16px;
   height: 16px;
