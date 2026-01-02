@@ -516,7 +516,7 @@ pub fn save_port_to_db(port: u16) -> Result<(), String> {
 pub fn get_dlp_action_from_db() -> String {
     let conn = match Connection::open(get_db_path()) {
         Ok(c) => c,
-        Err(_) => return "redact".to_string(),
+        Err(_) => return "block".to_string(),
     };
 
     // Ensure settings table exists
@@ -530,7 +530,7 @@ pub fn get_dlp_action_from_db() -> String {
         [],
         |row| row.get::<_, String>(0),
     )
-    .unwrap_or_else(|_| "redact".to_string())
+    .unwrap_or_else(|_| "block".to_string())
 }
 
 pub fn save_dlp_action_to_db(action: &str) -> Result<(), String> {
