@@ -15,7 +15,34 @@ mod requestresponsemetadata;
 use database::get_port_from_db;
 use dlp_pattern_config::DEFAULT_PORT;
 use std::sync::{Arc, Mutex};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::TrayIconBuilder,
+    AppHandle, Manager, WindowEvent,
+};
 use tokio::sync::watch;
+
+#[cfg(target_os = "macos")]
+use tauri::ActivationPolicy;
+
+// Helper to show window and set dock visibility on macOS
+fn show_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        #[cfg(target_os = "macos")]
+        let _ = app.set_activation_policy(ActivationPolicy::Regular);
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+// Helper to hide window and hide from dock on macOS
+fn hide_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+        #[cfg(target_os = "macos")]
+        let _ = app.set_activation_policy(ActivationPolicy::Accessory);
+    }
+}
 
 // Global state for reverse proxy control
 pub static PROXY_PORT: std::sync::LazyLock<Arc<Mutex<u16>>> =
@@ -40,10 +67,49 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            // Create tray menu items
+            let show_item = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+            let hide_item = MenuItem::with_id(app, "hide", "Hide", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+
+            // Build the tray menu
+            let menu = Menu::with_items(app, &[&show_item, &hide_item, &quit_item])?;
+
+            // Build the tray icon
+            let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&menu)
+                .show_menu_on_left_click(true)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        show_window(app);
+                    }
+                    "hide" => {
+                        hide_window(app);
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .build(app)?;
+
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                // Prevent the window from closing, hide it instead
+                api.prevent_close();
+                let app = window.app_handle();
+                hide_window(&app);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::greet,
             commands::get_dashboard_stats,
             commands::get_backends,
+            commands::get_models,
             commands::get_message_logs,
             commands::get_port_setting,
             commands::save_port_setting,

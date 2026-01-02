@@ -59,6 +59,12 @@ pub struct MessageLog {
 }
 
 #[derive(Serialize)]
+pub struct PaginatedLogs {
+    logs: Vec<MessageLog>,
+    total: i64,
+}
+
+#[derive(Serialize)]
 pub struct LatencyPoint {
     id: i64,
     latency_ms: i64,
@@ -302,7 +308,33 @@ pub fn get_backends() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub fn get_message_logs(time_range: String, backend: String) -> Result<Vec<MessageLog>, String> {
+pub fn get_models() -> Result<Vec<String>, String> {
+    let conn = Connection::open(DB_PATH).map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT DISTINCT COALESCE(model, 'unknown') FROM requests WHERE {} ORDER BY model",
+            ENDPOINT_FILTER
+        ))
+        .map_err(|e| e.to_string())?;
+
+    let models: Vec<String> = stmt
+        .query_map([], |row| row.get(0))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(models)
+}
+
+#[tauri::command]
+pub fn get_message_logs(
+    time_range: String,
+    backend: String,
+    model: String,
+    dlp_action: String,
+    page: i64,
+) -> Result<PaginatedLogs, String> {
     let conn = Connection::open(DB_PATH).map_err(|e| e.to_string())?;
 
     let hours = time_range_to_hours(&time_range);
@@ -314,6 +346,35 @@ pub fn get_message_logs(time_range: String, backend: String) -> Result<Vec<Messa
         format!(" AND backend = '{}'", backend.replace('\'', "''"))
     };
 
+    let model_filter = if model == "all" {
+        String::new()
+    } else {
+        format!(" AND COALESCE(model, 'unknown') = '{}'", model.replace('\'', "''"))
+    };
+
+    let dlp_filter = match dlp_action.as_str() {
+        "passed" => " AND COALESCE(dlp_action, 0) = 0".to_string(),
+        "redacted" => " AND dlp_action = 1".to_string(),
+        "blocked" => " AND dlp_action = 2".to_string(),
+        _ => String::new(),
+    };
+
+    let filters = format!("{}{}{}", backend_filter, model_filter, dlp_filter);
+
+    // Get total count
+    let total: i64 = conn
+        .query_row(
+            &format!(
+                "SELECT COUNT(*) FROM requests WHERE {} AND timestamp >= ?1{}",
+                ENDPOINT_FILTER, filters
+            ),
+            [&cutoff_ts],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+
+    let offset = page * 50;
+
     let mut stmt = conn
         .prepare(&format!(
             "SELECT id, timestamp, backend, COALESCE(model, 'unknown'),
@@ -322,13 +383,13 @@ pub fn get_message_logs(time_range: String, backend: String) -> Result<Vec<Messa
              FROM requests
              WHERE {} AND timestamp >= ?1{}
              ORDER BY id DESC
-             LIMIT 100",
-            ENDPOINT_FILTER, backend_filter
+             LIMIT 50 OFFSET ?2",
+            ENDPOINT_FILTER, filters
         ))
         .map_err(|e| e.to_string())?;
 
     let logs: Vec<MessageLog> = stmt
-        .query_map([&cutoff_ts], |row| {
+        .query_map(rusqlite::params![&cutoff_ts, offset], |row| {
             Ok(MessageLog {
                 id: row.get(0)?,
                 timestamp: row.get(1)?,
@@ -348,7 +409,7 @@ pub fn get_message_logs(time_range: String, backend: String) -> Result<Vec<Messa
         .filter_map(|r| r.ok())
         .collect();
 
-    Ok(logs)
+    Ok(PaginatedLogs { logs, total })
 }
 
 #[tauri::command]

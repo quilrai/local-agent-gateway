@@ -37,6 +37,25 @@ export function setLogsBackend(value) {
   logsBackend = value;
 }
 
+export let logsModel = 'all';
+
+export function setLogsModel(value) {
+  logsModel = value;
+}
+
+export let logsDlpAction = 'all';
+
+export function setLogsDlpAction(value) {
+  logsDlpAction = value;
+}
+
+// Logs pagination
+export let logsPage = 0;
+
+export function setLogsPage(value) {
+  logsPage = value;
+}
+
 // Store logs data for modal access
 export let currentLogs = [];
 

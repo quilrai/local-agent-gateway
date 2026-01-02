@@ -79,86 +79,11 @@
 
 /* ============ Dashboard - DLP Stats ============ */
 
-.dlp-stats-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.dlp-stat-card {
-  background: #f8f9fa;
-  padding: 16px;
-  border-radius: 8px;
-  text-align: center;
-}
-
-.dlp-stat-value {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #6366f1;
-}
-
-.dlp-stat-label {
-  font-size: 0.75rem;
-  color: #666;
-  text-transform: uppercase;
-  margin-top: 4px;
-}
-
-.dlp-detections-list {
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.dlp-detection-item {
+.dlp-chart-container {
+  height: 250px;
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px;
-  background: #f8f9fa;
-  border-radius: 8px;
-  margin-bottom: 8px;
-}
-
-.dlp-detection-header {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-}
-
-.dlp-detection-pattern {
-  font-weight: 600;
-  color: #333;
-}
-
-.dlp-detection-time {
-  font-size: 0.75rem;
-  color: #888;
-}
-
-.dlp-detection-value {
-  font-family: monospace;
-  font-size: 0.8rem;
-  padding: 8px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 4px;
-  word-break: break-all;
-}
-
-.dlp-detection-value .redacted {
-  color: #dc2626;
-  background: #fee2e2;
-  padding: 2px 6px;
-  border-radius: 3px;
-}
-
-.dlp-detection-value .original {
-  color: #166534;
-  background: #dcfce7;
-  padding: 2px 6px;
-  border-radius: 3px;
+  justify-content: center;
 }
 
 /* ============ Logs Cards Grid ============ */
@@ -193,6 +118,13 @@
   font-size: 0.8rem;
   color: #666;
   font-weight: 500;
+}
+
+.log-number {
+  font-size: 0.75rem;
+  color: #888;
+  font-weight: 600;
+  font-family: monospace;
 }
 
 .log-pill {
@@ -358,6 +290,58 @@
   word-break: break-word;
   color: #333;
   background: #fff;
+}
+
+/* ============ Logs Pagination ============ */
+
+#logs-tab .page-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #f0f2f5;
+  padding-bottom: 16px;
+  margin-bottom: 0;
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  position: sticky;
+  top: 52px;
+  z-index: 9;
+  background: #f0f2f5;
+  margin-bottom: 16px;
+}
+
+.pagination-btn {
+  padding: 8px 16px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #333;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: #6366f1;
+  border-color: #6366f1;
+  color: #fff;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pagination-info {
+  font-size: 0.85rem;
+  color: #666;
 }
 
 /* ============ Settings Page ============ */

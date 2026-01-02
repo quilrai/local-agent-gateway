@@ -4,37 +4,15 @@ import {
   setCurrentTimeRange,
   currentBackend,
   setCurrentBackend,
-  formatNumber,
-  formatTimestamp,
-  escapeHtml
+  formatNumber
 } from './utils.js';
-import { destroyCharts, createModelsChart, createTokenChart, createLatencyChart } from './charts.js';
+import { destroyCharts, createModelsChart, createTokenChart, createLatencyChart, createDlpChart } from './charts.js';
 
 // Render dashboard HTML
 function renderDashboard(data, dlpStats) {
   const { models, features, token_totals, recent_requests, latency_points } = data;
 
   const pct = (val) => features.total_requests > 0 ? Math.round((val / features.total_requests) * 100) : 0;
-
-  // Render DLP detections
-  const renderDlpDetectionsHtml = (detections) => {
-    if (!detections || detections.length === 0) {
-      return '<p class="empty-text">No detections recorded</p>';
-    }
-    return detections.map(d => `
-      <div class="dlp-detection-item">
-        <div class="dlp-detection-header">
-          <span class="dlp-detection-pattern">${escapeHtml(d.pattern_name)}</span>
-          <span class="dlp-detection-time">${formatTimestamp(d.timestamp)}</span>
-        </div>
-        <div class="dlp-detection-value">
-          <span class="original">${escapeHtml(d.original_value)}</span>
-          <span style="margin: 0 8px; color: #888;">→</span>
-          <span class="redacted">${escapeHtml(d.placeholder)}</span>
-        </div>
-      </div>
-    `).join('');
-  };
 
   return `
     <div class="charts-grid">
@@ -136,21 +114,10 @@ function renderDashboard(data, dlpStats) {
       <div class="card full-width">
         <div class="card-header">
           DLP Detections
-          <span class="badge">${dlpStats ? dlpStats.total_detections : 0} detected</span>
         </div>
         <div class="card-body">
-          <div class="dlp-stats-grid">
-            <div class="dlp-stat-card">
-              <div class="dlp-stat-value">${dlpStats ? dlpStats.total_detections : 0}</div>
-              <div class="dlp-stat-label">Total Detections</div>
-            </div>
-            <div class="dlp-stat-card">
-              <div class="dlp-stat-value">${dlpStats ? dlpStats.detections_by_pattern.length : 0}</div>
-              <div class="dlp-stat-label">Patterns Triggered</div>
-            </div>
-          </div>
-          <div class="dlp-detections-list">
-            ${renderDlpDetectionsHtml(dlpStats?.recent_detections)}
+          <div class="dlp-chart-container" id="dlp-chart">
+            ${(!dlpStats || dlpStats.detections_by_pattern.length === 0) ? '<p class="empty-text">No detections</p>' : ''}
           </div>
         </div>
       </div>
@@ -197,6 +164,9 @@ export async function loadDashboard() {
       }
       if (data.latency_points.length > 0) {
         createLatencyChart(document.getElementById('latency-chart'), data.latency_points);
+      }
+      if (dlpStats && dlpStats.detections_by_pattern.length > 0) {
+        createDlpChart(document.getElementById('dlp-chart'), dlpStats.detections_by_pattern);
       }
     }, 0);
 

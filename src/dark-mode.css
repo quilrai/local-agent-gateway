@@ -77,6 +77,10 @@
     color: #888;
   }
 
+  .log-number {
+    color: #666;
+  }
+
   .log-pill.backend {
     background: #2a2a4e;
     color: #a5b4fc;
@@ -168,6 +172,31 @@
   .log-json {
     background: #1a1a2e;
     color: #e8e8e8;
+  }
+
+  /* Pagination */
+  #logs-tab .page-header {
+    background: #0f0f1a;
+  }
+
+  .pagination {
+    background: #0f0f1a;
+  }
+
+  .pagination-btn {
+    background: #1a1a2e;
+    border-color: #2a2a3e;
+    color: #e8e8e8;
+  }
+
+  .pagination-btn:hover:not(:disabled) {
+    background: #6366f1;
+    border-color: #6366f1;
+    color: #fff;
+  }
+
+  .pagination-info {
+    color: #888;
   }
 
   /* JSON Modal */

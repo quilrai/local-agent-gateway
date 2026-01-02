@@ -88,6 +88,12 @@ impl Database {
             [],
         );
 
+        // Create index for faster generation_id lookups (timestamp + backend filtering)
+        let _ = conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_requests_timestamp_backend ON requests(timestamp, backend)",
+            [],
+        );
+
         // Create settings table
         conn.execute(
             "CREATE TABLE IF NOT EXISTS settings (
@@ -326,11 +332,12 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let timestamp = chrono::Utc::now().to_rfc3339();
 
-        // Check if entry already exists for this generation_id
+        // Check if entry already exists for this generation_id (within last 5 minutes for faster lookup)
+        let cutoff = (chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339();
         let existing_id: Option<i64> = conn
             .query_row(
-                "SELECT id FROM requests WHERE json_extract(extra_metadata, '$.generation_id') = ?1 AND backend = 'cursor-hooks'",
-                rusqlite::params![generation_id],
+                "SELECT id FROM requests WHERE timestamp >= ?1 AND backend = 'cursor-hooks' AND json_extract(extra_metadata, '$.generation_id') = ?2",
+                rusqlite::params![cutoff, generation_id],
                 |row| row.get(0),
             )
             .ok();
@@ -400,11 +407,13 @@ impl Database {
     ) -> Result<bool, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
 
-        // Find the request by generation_id in extra_metadata, also get timestamp for latency calculation
+        // Find the request by generation_id in extra_metadata (within last 5 minutes for faster lookup)
+        // Also get timestamp for latency calculation
+        let cutoff = (chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339();
         let existing: Option<(i64, i32, String)> = conn
             .query_row(
-                "SELECT id, output_tokens, timestamp FROM requests WHERE json_extract(extra_metadata, '$.generation_id') = ?1 AND backend = 'cursor-hooks'",
-                rusqlite::params![generation_id],
+                "SELECT id, output_tokens, timestamp FROM requests WHERE timestamp >= ?1 AND backend = 'cursor-hooks' AND json_extract(extra_metadata, '$.generation_id') = ?2",
+                rusqlite::params![cutoff, generation_id],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .ok();
@@ -446,13 +455,14 @@ impl Database {
     ) -> Result<bool, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
 
-        // Find and update the request
+        // Find and update the request (within last 5 minutes for faster lookup)
+        let cutoff = (chrono::Utc::now() - chrono::Duration::minutes(5)).to_rfc3339();
         let rows_affected = conn.execute(
             "UPDATE requests SET
                 output_tokens = output_tokens + ?1,
                 has_thinking = 1
-             WHERE json_extract(extra_metadata, '$.generation_id') = ?2 AND backend = 'cursor-hooks'",
-            rusqlite::params![thinking_word_count, generation_id],
+             WHERE timestamp >= ?2 AND backend = 'cursor-hooks' AND json_extract(extra_metadata, '$.generation_id') = ?3",
+            rusqlite::params![thinking_word_count, cutoff, generation_id],
         )?;
 
         Ok(rows_affected > 0)

@@ -4,6 +4,12 @@ import {
   setLogsTimeRange,
   logsBackend,
   setLogsBackend,
+  logsModel,
+  setLogsModel,
+  logsDlpAction,
+  setLogsDlpAction,
+  logsPage,
+  setLogsPage,
   currentLogs,
   setCurrentLogs,
   formatNumber,
@@ -33,12 +39,13 @@ function formatJson(jsonStr) {
 }
 
 // Render a single log card
-function renderLogCard(log, index) {
+function renderLogCard(log, index, cardNum, total) {
   const status = getDlpStatus(log.dlp_action);
 
   return `
     <div class="log-card" data-index="${index}">
       <div class="log-card-header">
+        <span class="log-number">${cardNum}/${total}</span>
         <span class="log-time">${formatRelativeTime(log.timestamp)}</span>
         <span class="log-pill backend">${log.backend}</span>
         <span class="log-pill model">${shortenModel(log.model)}</span>
@@ -71,10 +78,10 @@ function renderLogCard(log, index) {
 }
 
 // Render message logs as cards
-function renderLogsCards(logs) {
+function renderLogsCards(logs, total) {
   setCurrentLogs(logs);
 
-  if (logs.length === 0) {
+  if (logs.length === 0 && logsPage === 0) {
     return `
       <div class="empty-state">
         <h3>No logs yet</h3>
@@ -83,9 +90,18 @@ function renderLogsCards(logs) {
     `;
   }
 
+  const totalPages = Math.ceil(total / 50);
+  const currentPage = logsPage + 1;
+  const startNum = logsPage * 50 + 1;
+
   return `
+    <div class="pagination">
+      <button class="pagination-btn" id="logs-prev" ${logsPage === 0 ? 'disabled' : ''}>Previous</button>
+      <span class="pagination-info">Page ${currentPage} of ${totalPages}</span>
+      <button class="pagination-btn" id="logs-next" ${currentPage >= totalPages ? 'disabled' : ''}>Next</button>
+    </div>
     <div class="logs-grid">
-      ${logs.map((log, index) => renderLogCard(log, index)).join('')}
+      ${logs.map((log, index) => renderLogCard(log, index, startNum + index, total)).join('')}
     </div>
   `;
 }
@@ -178,9 +194,16 @@ export async function loadMessageLogs() {
   content.innerHTML = '<p class="loading">Loading...</p>';
 
   try {
-    const logs = await invoke('get_message_logs', { timeRange: logsTimeRange, backend: logsBackend });
-    content.innerHTML = renderLogsCards(logs);
+    const result = await invoke('get_message_logs', {
+      timeRange: logsTimeRange,
+      backend: logsBackend,
+      model: logsModel,
+      dlpAction: logsDlpAction,
+      page: logsPage
+    });
+    content.innerHTML = renderLogsCards(result.logs, result.total);
     attachCardHandlers(content);
+    attachPaginationHandlers(content);
   } catch (error) {
     content.innerHTML = `
       <div class="empty-state">
@@ -188,6 +211,28 @@ export async function loadMessageLogs() {
         <p>${error}</p>
       </div>
     `;
+  }
+}
+
+// Attach pagination handlers
+function attachPaginationHandlers(container) {
+  const prevBtn = container.querySelector('#logs-prev');
+  const nextBtn = container.querySelector('#logs-next');
+
+  if (prevBtn) {
+    prevBtn.addEventListener('click', () => {
+      if (logsPage > 0) {
+        setLogsPage(logsPage - 1);
+        loadMessageLogs();
+      }
+    });
+  }
+
+  if (nextBtn) {
+    nextBtn.addEventListener('click', () => {
+      setLogsPage(logsPage + 1);
+      loadMessageLogs();
+    });
   }
 }
 
@@ -213,6 +258,7 @@ export function initLogsBackendFilter() {
   const select = document.getElementById('logs-backend-select');
   select.addEventListener('change', () => {
     setLogsBackend(select.value);
+    setLogsPage(0);
     loadMessageLogs();
   });
 }
@@ -222,6 +268,44 @@ export function initLogsTimeFilter() {
   const select = document.getElementById('logs-time-select');
   select.addEventListener('change', () => {
     setLogsTimeRange(select.value);
+    setLogsPage(0);
+    loadMessageLogs();
+  });
+}
+
+// Load models for logs tab
+export async function loadLogsModels() {
+  try {
+    const models = await invoke('get_models');
+    const select = document.getElementById('logs-model-select');
+    select.innerHTML = '<option value="all">All Models</option>';
+    models.forEach(model => {
+      const option = document.createElement('option');
+      option.value = model;
+      option.textContent = shortenModel(model);
+      select.appendChild(option);
+    });
+  } catch (error) {
+    console.error('Failed to load models:', error);
+  }
+}
+
+// Initialize logs model filter
+export function initLogsModelFilter() {
+  const select = document.getElementById('logs-model-select');
+  select.addEventListener('change', () => {
+    setLogsModel(select.value);
+    setLogsPage(0);
+    loadMessageLogs();
+  });
+}
+
+// Initialize logs DLP filter
+export function initLogsDlpFilter() {
+  const select = document.getElementById('logs-dlp-select');
+  select.addEventListener('change', () => {
+    setLogsDlpAction(select.value);
+    setLogsPage(0);
     loadMessageLogs();
   });
 }

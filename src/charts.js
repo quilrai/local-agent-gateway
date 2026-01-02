@@ -1,5 +1,19 @@
 import { charts, setCharts, colors, formatNumber, formatLatency, shortenModel } from './utils.js';
 
+// Extended color palette for DLP chart
+const dlpColors = [
+  colors.primary,    // Indigo
+  colors.secondary,  // Green
+  colors.warning,    // Amber
+  colors.pink,       // Pink
+  colors.blue,       // Blue
+  '#8b5cf6',         // Purple
+  '#14b8a6',         // Teal
+  '#f97316',         // Orange
+  '#ef4444',         // Red
+  '#84cc16',         // Lime
+];
+
 // Destroy existing charts
 export function destroyCharts() {
   Object.values(charts).forEach(chart => chart.destroy());
@@ -158,6 +172,65 @@ export function createLatencyChart(container, latencyPoints) {
           ticks: {
             font: { size: 10 },
             callback: v => formatLatency(v)
+          }
+        }
+      }
+    }
+  });
+  setCharts(newCharts);
+}
+
+// Create DLP Detections Chart (Doughnut)
+export function createDlpChart(container, detectionsByPattern) {
+  const ctx = document.createElement('canvas');
+  container.appendChild(ctx);
+
+  const labels = detectionsByPattern.map(p => p.pattern_name);
+  const values = detectionsByPattern.map(p => p.count);
+  const backgroundColors = detectionsByPattern.map((_, i) => dlpColors[i % dlpColors.length]);
+
+  const newCharts = { ...charts };
+  newCharts.dlp = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: backgroundColors,
+        borderWidth: 2,
+        borderColor: '#fff',
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: {
+            boxWidth: 14,
+            padding: 12,
+            font: { size: 12 },
+            generateLabels: (chart) => {
+              const data = chart.data;
+              return data.labels.map((label, i) => ({
+                text: `${label} (${data.datasets[0].data[i]})`,
+                fillStyle: data.datasets[0].backgroundColor[i],
+                strokeStyle: '#fff',
+                lineWidth: 2,
+                index: i
+              }));
+            }
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              const total = context.dataset.data.reduce((a, b) => a + b, 0);
+              const value = context.parsed;
+              const pct = Math.round((value / total) * 100);
+              return `${context.label}: ${value} (${pct}%)`;
+            }
           }
         }
       }
