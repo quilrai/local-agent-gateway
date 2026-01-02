@@ -2,7 +2,7 @@
 
 use crate::backends::{Backend, ClaudeBackend, CodexBackend};
 use crate::cursor_hooks::create_cursor_hooks_router;
-use crate::database::{get_dlp_action_from_db, Database};
+use crate::database::{get_dlp_action_from_db, Database, DLP_ACTION_BLOCKED, DLP_ACTION_PASSED, DLP_ACTION_REDACTED};
 use crate::dlp::{apply_dlp_redaction, apply_dlp_unredaction, DlpDetection};
 use crate::dlp_pattern_config::get_db_path;
 use crate::requestresponsemetadata::ResponseMetadata;
@@ -176,7 +176,7 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request) -> impl In
                 None,
                 Some(&request_headers_json),
                 None,
-                2, // dlp_action = 2 (blocked)
+                DLP_ACTION_BLOCKED,
             ) {
                 let _ = db.log_dlp_detections(request_id, &dlp_result.detections);
             }
@@ -320,8 +320,8 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request) -> impl In
                     &headers_clone,
                 );
 
-                // Determine dlp_action: 1=redacted if detections, 0=none
-                let dlp_action_value = if dlp_detections_clone.is_empty() { 0 } else { 1 };
+                // Determine dlp_action: redacted if detections, otherwise passed
+                let dlp_action_value = if dlp_detections_clone.is_empty() { DLP_ACTION_PASSED } else { DLP_ACTION_REDACTED };
 
                 if let Ok(request_id) = db_clone.log_request(
                     &backend_name,
@@ -397,8 +397,8 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request) -> impl In
             let request_headers_json = headers_to_json(&headers);
             let response_headers_json = reqwest_headers_to_json(&resp_headers);
 
-            // Determine dlp_action: 1=redacted if detections, 0=none
-            let dlp_action_value = if dlp_result.detections.is_empty() { 0 } else { 1 };
+            // Determine dlp_action: redacted if detections, otherwise passed
+            let dlp_action_value = if dlp_result.detections.is_empty() { DLP_ACTION_PASSED } else { DLP_ACTION_REDACTED };
 
             if let Ok(request_id) = db.log_request(
                 backend.name(),

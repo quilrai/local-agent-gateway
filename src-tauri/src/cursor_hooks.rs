@@ -4,7 +4,7 @@
 // Hooks: beforeSubmitPrompt, beforeReadFile, beforeTabFileRead,
 //        afterAgentResponse, afterAgentThought
 
-use crate::database::Database;
+use crate::database::{Database, DLP_ACTION_BLOCKED, DLP_ACTION_PASSED};
 use crate::dlp::{check_dlp_patterns, DlpDetection};
 use axum::{
     extract::State,
@@ -343,8 +343,7 @@ async fn before_submit_prompt_handler(
     let response_body_json = serde_json::to_string(&response).unwrap_or_default();
 
     // Log to database
-    // dlp_action: 0=Passed, 1=Redacted, 2=Blocked
-    let dlp_action = if is_blocked { 2 } else { 0 };
+    let dlp_action = if is_blocked { DLP_ACTION_BLOCKED } else { DLP_ACTION_PASSED };
     if let Ok(request_id) = state.db.log_cursor_hook_request(
         &input.generation_id,
         "CursorChat",
@@ -477,10 +476,9 @@ async fn before_read_file_handler(
     let response_body_json = serde_json::to_string(&response).unwrap_or_default();
 
     // Log to database
-    // dlp_action: 0=None, 1=Passed, 2=Blocked
     let token_count = estimate_tokens(&content);
     let response_status = if is_blocked { 403 } else { 200 };
-    let dlp_action = if is_blocked { 2 } else { 1 };
+    let dlp_action = if is_blocked { DLP_ACTION_BLOCKED } else { DLP_ACTION_PASSED };
 
     if let Ok(request_id) = state.db.log_cursor_hook_request(
         &input.generation_id,
@@ -565,10 +563,9 @@ async fn before_tab_file_read_handler(
     let response_body_json = serde_json::to_string(&response).unwrap_or_default();
 
     // Log to database
-    // dlp_action: 0=None, 1=Passed, 2=Blocked
     let token_count = estimate_tokens(&content);
     let response_status = if is_blocked { 403 } else { 200 };
-    let dlp_action = if is_blocked { 2 } else { 1 };
+    let dlp_action = if is_blocked { DLP_ACTION_BLOCKED } else { DLP_ACTION_PASSED };
 
     if let Ok(request_id) = state.db.log_cursor_hook_request(
         &input.generation_id,

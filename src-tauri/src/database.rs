@@ -7,6 +7,19 @@ use crate::requestresponsemetadata::{RequestMetadata, ResponseMetadata};
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 
+// ============================================================================
+// DLP Action Status Codes
+// ============================================================================
+
+/// DLP action: Content passed without any sensitive data detected
+pub const DLP_ACTION_PASSED: i32 = 0;
+
+/// DLP action: Sensitive data was detected and redacted
+pub const DLP_ACTION_REDACTED: i32 = 1;
+
+/// DLP action: Sensitive data was detected and request was blocked
+pub const DLP_ACTION_BLOCKED: i32 = 2;
+
 /// Thread-safe database wrapper
 #[derive(Clone)]
 pub struct Database {
@@ -75,7 +88,8 @@ impl Database {
             [],
         );
 
-        // Migration: Add dlp_action column if it doesn't exist (0=None, 1=Redacted, 2=Blocked)
+        // Migration: Add dlp_action column if it doesn't exist
+        // Uses DLP_ACTION_PASSED (0), DLP_ACTION_REDACTED (1), DLP_ACTION_BLOCKED (2)
         let _ = conn.execute(
             "ALTER TABLE requests ADD COLUMN dlp_action INTEGER DEFAULT 0",
             [],
