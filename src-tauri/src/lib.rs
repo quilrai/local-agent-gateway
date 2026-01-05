@@ -144,6 +144,7 @@ pub fn run() {
             commands::get_dlp_detections_for_request,
             commands::get_dlp_action_setting,
             commands::save_dlp_action_setting,
+            commands::test_dlp_pattern,
             commands::set_shell_env,
             commands::check_shell_env,
             commands::remove_shell_env,

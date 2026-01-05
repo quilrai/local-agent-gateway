@@ -288,6 +288,28 @@
   padding: 16px;
 }
 
+/* Test Results */
+.test-results {
+  padding: 10px 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.test-results code {
+  background: #e9ecef;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  color: #d63384;
+}
+
+.test-success { color: #198754; font-weight: 500; }
+.test-none { color: #6c757d; }
+.test-excluded { color: #fd7e14; font-weight: 500; }
+.test-error { color: #dc3545; }
+
 /* ============ Modals ============ */
 
 .modal {

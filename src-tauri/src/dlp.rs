@@ -122,10 +122,12 @@ fn count_unique_chars(s: &str) -> usize {
     s.chars().collect::<HashSet<_>>().len()
 }
 
-/// Check if a match should be excluded by negative patterns
-fn is_excluded_by_negative(matched: &str, negative_regexes: &[Regex]) -> bool {
+/// Check if text should be excluded by negative patterns
+/// Negative patterns take precedence: if ANY negative pattern matches the text,
+/// the entire pattern group is skipped (even if positive patterns match)
+fn is_excluded_by_negative(text: &str, negative_regexes: &[Regex]) -> bool {
     for neg_re in negative_regexes {
-        if neg_re.is_match(matched) {
+        if neg_re.is_match(text) {
             return true;
         }
     }
@@ -324,6 +326,12 @@ fn redact_text(
     let mut result = text.to_string();
 
     for pattern in patterns {
+        // Check negative patterns first - they take precedence
+        // If ANY negative pattern matches the text, skip this pattern group entirely
+        if is_excluded_by_negative(&result, &pattern.negative_regexes) {
+            continue;
+        }
+
         // Collect all matches from all regexes for this pattern
         let mut all_matches: Vec<String> = Vec::new();
         for regex in pattern.regexes.iter() {
@@ -346,11 +354,6 @@ fn redact_text(
                 if (unique_count as i32) < pattern.min_unique_chars {
                     continue;
                 }
-            }
-
-            // Check negative patterns (exclusions)
-            if is_excluded_by_negative(&matched, &pattern.negative_regexes) {
-                continue;
             }
 
             // Check if we already have a placeholder for this exact value
@@ -413,6 +416,12 @@ pub fn check_dlp_patterns(text: &str) -> Vec<DlpDetection> {
     let mut seen_values: HashSet<String> = HashSet::new();
 
     for pattern in patterns {
+        // Check negative patterns first - they take precedence
+        // If ANY negative pattern matches the text, skip this pattern group entirely
+        if is_excluded_by_negative(text, &pattern.negative_regexes) {
+            continue;
+        }
+
         // Collect all matches from all regexes for this pattern
         let mut all_matches: Vec<String> = Vec::new();
         for regex in &pattern.regexes {
@@ -440,11 +449,6 @@ pub fn check_dlp_patterns(text: &str) -> Vec<DlpDetection> {
                 if (unique_count as i32) < pattern.min_unique_chars {
                     continue;
                 }
-            }
-
-            // Check negative patterns (exclusions)
-            if is_excluded_by_negative(&matched, &pattern.negative_regexes) {
-                continue;
             }
 
             seen_values.insert(matched.clone());

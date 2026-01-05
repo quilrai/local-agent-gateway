@@ -464,6 +464,7 @@
               <details class="form-details">
                 <summary>Negative Patterns (Exclusions)</summary>
                 <div class="form-details-content">
+                  <p class="form-hint" style="margin-bottom: 12px;">Negative patterns take precedence: if any match is found, this pattern group is skipped entirely.</p>
                   <div class="form-group">
                     <label>Negative Pattern Type</label>
                     <div class="radio-group">
@@ -485,6 +486,18 @@
                     <label for="negative-pattern-values">Negative Patterns <span class="form-hint">(matches excluded)</span></label>
                     <textarea id="negative-pattern-values" class="form-textarea" rows="3" placeholder="Enter patterns to exclude from detection"></textarea>
                   </div>
+                </div>
+              </details>
+
+              <details class="form-details">
+                <summary>Test Pattern</summary>
+                <div class="form-details-content">
+                  <div class="form-group">
+                    <label for="test-text">Sample Text</label>
+                    <textarea id="test-text" class="form-textarea" rows="3" placeholder="Enter text to test your pattern against"></textarea>
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-sm" id="test-pattern-btn">Test</button>
+                  <div id="test-results" class="test-results" style="display: none; margin-top: 12px;"></div>
                 </div>
               </details>
             </div>

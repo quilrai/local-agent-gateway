@@ -411,6 +411,13 @@ function hidePatternModal() {
   const modal = document.getElementById('pattern-modal');
   modal.classList.remove('show');
   document.getElementById('pattern-name').disabled = false;
+  // Clear test results
+  const testResults = document.getElementById('test-results');
+  if (testResults) {
+    testResults.style.display = 'none';
+    testResults.innerHTML = '';
+  }
+  document.getElementById('test-text').value = '';
 }
 
 // Parse text lines into array
@@ -419,6 +426,63 @@ function parseLines(text) {
     .split('\n')
     .map(p => p.trim())
     .filter(p => p.length > 0);
+}
+
+// Test pattern against sample text
+async function testPattern() {
+  const testText = document.getElementById('test-text').value;
+  const testResults = document.getElementById('test-results');
+  const testBtn = document.getElementById('test-pattern-btn');
+
+  if (!testText.trim()) {
+    testResults.innerHTML = '<span class="test-error">Enter sample text to test</span>';
+    testResults.style.display = 'block';
+    return;
+  }
+
+  const patternType = document.querySelector('input[name="pattern-type"]:checked').value;
+  const patterns = parseLines(document.getElementById('pattern-values').value);
+  const minUniqueChars = parseInt(document.getElementById('min-unique-chars').value) || 0;
+  const minOccurrences = parseInt(document.getElementById('min-occurrences').value) || 1;
+  const negativePatternType = document.querySelector('input[name="negative-pattern-type"]:checked').value || null;
+  const negativePatterns = parseLines(document.getElementById('negative-pattern-values').value);
+
+  if (patterns.length === 0) {
+    testResults.innerHTML = '<span class="test-error">Add at least one pattern first</span>';
+    testResults.style.display = 'block';
+    return;
+  }
+
+  testBtn.disabled = true;
+  testBtn.textContent = 'Testing...';
+
+  try {
+    const result = await invoke('test_dlp_pattern', {
+      patternType,
+      patterns,
+      negativePatternType,
+      negativePatterns: negativePatterns.length > 0 ? negativePatterns : null,
+      minOccurrences,
+      minUniqueChars,
+      testText
+    });
+
+    if (result.excluded) {
+      testResults.innerHTML = '<span class="test-excluded">Excluded by negative pattern</span>';
+    } else if (result.matches.length === 0) {
+      testResults.innerHTML = '<span class="test-none">No matches found</span>';
+    } else {
+      testResults.innerHTML = `<span class="test-success">Matches (${result.matches.length}):</span> ` +
+        result.matches.map(m => `<code>${escapeHtml(m)}</code>`).join(', ');
+    }
+    testResults.style.display = 'block';
+  } catch (error) {
+    testResults.innerHTML = `<span class="test-error">Error: ${escapeHtml(error)}</span>`;
+    testResults.style.display = 'block';
+  } finally {
+    testBtn.disabled = false;
+    testBtn.textContent = 'Test';
+  }
 }
 
 // Save pattern (add or update)
@@ -501,6 +565,12 @@ function initDlpSettings() {
   const savePatternBtn = document.getElementById('save-pattern-btn');
   if (savePatternBtn) {
     savePatternBtn.addEventListener('click', savePattern);
+  }
+
+  // Test pattern button
+  const testPatternBtn = document.getElementById('test-pattern-btn');
+  if (testPatternBtn) {
+    testPatternBtn.addEventListener('click', testPattern);
   }
 
   // Close modal on backdrop click
