@@ -109,11 +109,11 @@ function renderDashboard(data, dlpStats) {
       </div>
     </div>
 
-    <!-- DLP Detections -->
+    <!-- Detections -->
     <div class="charts-grid">
       <div class="card full-width">
         <div class="card-header">
-          DLP Detections
+          Detections
         </div>
         <div class="card-body">
           <div class="dlp-chart-container" id="dlp-chart">

@@ -189,8 +189,8 @@ async function saveDlpActionSetting(action) {
     await invoke('save_dlp_action_setting', { action });
     showSettingsStatus(
       action === 'block'
-        ? 'DLP action set to Block - requests with sensitive data will be blocked'
-        : 'DLP action set to Redact - sensitive data will be redacted from requests',
+        ? 'Action set to Block - requests with sensitive data will be blocked'
+        : 'Action set to Redact - sensitive data will be redacted from requests',
       'success',
       'dlp-action-status'
     );

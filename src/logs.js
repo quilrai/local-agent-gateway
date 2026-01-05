@@ -63,7 +63,7 @@ function renderLogCard(log, index, cardNum, total) {
       <div class="log-card-tabs">
         <button class="log-tab active" data-tab="data" data-index="${index}">Data</button>
         <button class="log-tab" data-tab="headers" data-index="${index}">Headers</button>
-        <button class="log-tab" data-tab="dlp" data-index="${index}">DLP Detections</button>
+        <button class="log-tab" data-tab="dlp" data-index="${index}">Detections</button>
       </div>
       <div class="log-card-subtabs">
         <button class="log-subtab active" data-subtab="request" data-index="${index}">Request</button>
@@ -132,7 +132,7 @@ async function updateCardContent(card, index) {
     try {
       const detections = await invoke('get_dlp_detections_for_request', { requestId: log.id });
       if (detections.length === 0) {
-        jsonPre.textContent = 'No DLP detections for this request.';
+        jsonPre.textContent = 'No detections for this request.';
       } else {
         const formatted = detections.map(d => ({
           pattern: d.pattern_name,
@@ -144,7 +144,7 @@ async function updateCardContent(card, index) {
         jsonPre.textContent = JSON.stringify(formatted, null, 2);
       }
     } catch (err) {
-      jsonPre.textContent = 'Error loading DLP detections: ' + err;
+      jsonPre.textContent = 'Error loading detections: ' + err;
     }
   } else {
     subtabsContainer.style.display = '';

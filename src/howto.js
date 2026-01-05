@@ -43,7 +43,7 @@ function getToolInstructions(tool) {
     'cursor': {
       title: 'Cursor',
       content: `
-        <p>Cursor uses hooks for DLP integration. Click the button below to install or remove the hooks.</p>
+        <p>Cursor uses hooks for data protection integration. Click the button below to install or remove the hooks.</p>
 
         <div class="cursor-hooks-section">
           <div class="cursor-hooks-status">

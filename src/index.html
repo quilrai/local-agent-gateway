@@ -95,7 +95,7 @@
                 <option value="all">All Models</option>
               </select>
               <select id="logs-dlp-select" class="filter-select">
-                <option value="all">All DLP Status</option>
+                <option value="all">All Detection Status</option>
                 <option value="passed">Passed</option>
                 <option value="redacted">Redacted</option>
                 <option value="blocked">Blocked</option>
@@ -152,11 +152,11 @@
 
           <div class="settings-section">
             <div class="card">
-              <div class="card-header">DLP Settings</div>
+              <div class="card-header">Sensitive Data Settings</div>
               <div class="card-body">
                 <div class="setting-row" style="margin-bottom: 20px;">
                   <div class="setting-info">
-                    <label class="setting-label">DLP Action</label>
+                    <label class="setting-label">Detection Action</label>
                     <p class="setting-description" id="dlp-action-description">Sensitive data is redacted before sending to LLM and restored in the response seamlessly. No manual action needed.</p>
                     <p class="setting-note">Cursor supports blocking only.</p>
                   </div>
@@ -175,7 +175,7 @@
 
                 <div class="dlp-section">
                   <div class="dlp-section-header">
-                    <h4 class="dlp-section-title">DLP Patterns</h4>
+                    <h4 class="dlp-section-title">Detection Patterns</h4>
                     <button id="add-pattern-btn" class="btn btn-secondary btn-sm">
                       <i data-lucide="plus"></i>
                       Add Pattern
@@ -194,7 +194,7 @@
         <!-- LLM Gateway Tab -->
         <div id="backends-tab" class="tab-content">
           <h1>LLM Gateway</h1>
-          <p class="page-subtitle">Configure DLP, rate limits, and token limits for your LLM backends. Restart the proxy to apply changes.</p>
+          <p class="page-subtitle">Configure data protection, rate limits, and token limits for your LLM backends. Restart the proxy to apply changes.</p>
 
           <div class="settings-section">
             <div class="card">
@@ -255,8 +255,8 @@
               <div class="form-group">
                 <div class="setting-toggle-row">
                   <div class="setting-toggle-info">
-                    <label>DLP Protection</label>
-                    <p class="form-hint">Apply DLP patterns to detect and handle sensitive data</p>
+                    <label>Data Protection</label>
+                    <p class="form-hint">Apply detection patterns to detect and handle sensitive data</p>
                   </div>
                   <label class="toggle-switch">
                     <input type="checkbox" id="backend-dlp-enabled" checked />
@@ -323,8 +323,8 @@
               <div class="form-group">
                 <div class="setting-toggle-row">
                   <div class="setting-toggle-info">
-                    <label>DLP Protection</label>
-                    <p class="form-hint">Apply DLP patterns to detect and handle sensitive data</p>
+                    <label>Data Protection</label>
+                    <p class="form-hint">Apply detection patterns to detect and handle sensitive data</p>
                   </div>
                   <label class="toggle-switch">
                     <input type="checkbox" id="predefined-backend-dlp-enabled" checked />

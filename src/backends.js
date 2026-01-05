@@ -91,8 +91,8 @@ function renderBackends(backends) {
   container.innerHTML = backends.map(backend => {
     const settings = parseSettings(backend.settings);
     const dlpBadge = settings.dlp_enabled
-      ? '<span class="backend-setting-badge dlp-on">DLP On</span>'
-      : '<span class="backend-setting-badge dlp-off">DLP Off</span>';
+      ? '<span class="backend-setting-badge dlp-on">Protection On</span>'
+      : '<span class="backend-setting-badge dlp-off">Protection Off</span>';
     const rateBadge = settings.rate_limit_requests > 0
       ? `<span class="backend-setting-badge rate-limit">${settings.rate_limit_requests}/${settings.rate_limit_minutes}min</span>`
       : '<span class="backend-setting-badge no-rate-limit">No Rate Limit</span>';
@@ -322,8 +322,8 @@ function renderPredefinedBackends(backends) {
   container.innerHTML = backends.map(backend => {
     const settings = parseSettings(backend.settings);
     const dlpBadge = settings.dlp_enabled
-      ? '<span class="backend-setting-badge dlp-on">DLP On</span>'
-      : '<span class="backend-setting-badge dlp-off">DLP Off</span>';
+      ? '<span class="backend-setting-badge dlp-on">Protection On</span>'
+      : '<span class="backend-setting-badge dlp-off">Protection Off</span>';
     const rateBadge = settings.rate_limit_requests > 0
       ? `<span class="backend-setting-badge rate-limit">${settings.rate_limit_requests}/${settings.rate_limit_minutes}min</span>`
       : '<span class="backend-setting-badge no-rate-limit">No Rate Limit</span>';
