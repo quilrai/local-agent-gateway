@@ -140,12 +140,59 @@ export function formatRelativeTime(ts) {
 export function initTabs() {
   const navItems = document.querySelectorAll('.nav-item');
   navItems.forEach(item => {
-    item.addEventListener('click', () => {
+    item.addEventListener('click', (e) => {
+      // Don't switch tabs if clicking on info icon
+      if (e.target.closest('.nav-info')) return;
+
       const tabId = item.dataset.tab;
       navItems.forEach(nav => nav.classList.remove('active'));
       item.classList.add('active');
       document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
       document.getElementById(`${tabId}-tab`).classList.add('active');
     });
+  });
+
+  // Initialize info tooltips
+  initNavInfoTooltips();
+}
+
+// ============ Nav Info Tooltips ============
+
+function initNavInfoTooltips() {
+  const infoIcons = document.querySelectorAll('.nav-info');
+  let activeTooltip = null;
+
+  infoIcons.forEach(icon => {
+    icon.addEventListener('click', (e) => {
+      e.stopPropagation();
+
+      // Remove any existing tooltip
+      if (activeTooltip) {
+        activeTooltip.remove();
+        activeTooltip = null;
+      }
+
+      // Create and show tooltip
+      const tooltipText = icon.dataset.tooltip;
+      const tooltip = document.createElement('div');
+      tooltip.className = 'nav-info-tooltip';
+      tooltip.textContent = tooltipText;
+      icon.appendChild(tooltip);
+
+      // Trigger reflow and show
+      requestAnimationFrame(() => {
+        tooltip.classList.add('show');
+      });
+
+      activeTooltip = tooltip;
+    });
+  });
+
+  // Close tooltip when clicking elsewhere
+  document.addEventListener('click', () => {
+    if (activeTooltip) {
+      activeTooltip.remove();
+      activeTooltip = null;
+    }
   });
 }

@@ -560,6 +560,16 @@
     color: #e8e8e8;
   }
 
+  /* Nav Info Tooltip */
+  .nav-info-tooltip {
+    background: #2a2a4e;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  }
+
+  .nav-info-tooltip::before {
+    border-right-color: #2a2a4e;
+  }
+
   /* Backends Page */
   .page-subtitle {
     color: #888;

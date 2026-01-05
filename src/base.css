@@ -33,7 +33,9 @@
   flex-direction: column;
   flex-shrink: 0;
   height: 100vh;
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
+  z-index: 100;
 }
 
 .sidebar-header {
@@ -85,6 +87,63 @@
 .nav-icon svg {
   width: 18px;
   height: 18px;
+}
+
+.nav-text {
+  flex: 1;
+}
+
+.nav-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+  position: relative;
+  cursor: pointer;
+}
+
+.nav-info:hover {
+  opacity: 1;
+}
+
+.nav-info svg {
+  width: 14px;
+  height: 14px;
+}
+
+.nav-info-tooltip {
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: #1a1a2e;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.nav-info-tooltip::before {
+  content: '';
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 6px solid transparent;
+  border-right-color: #1a1a2e;
+}
+
+.nav-info-tooltip.show {
+  opacity: 1;
 }
 
 .sidebar-footer {

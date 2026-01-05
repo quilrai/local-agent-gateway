@@ -23,23 +23,28 @@
         <ul class="nav-tabs">
           <li class="nav-item active" data-tab="home">
             <span class="nav-icon"><i data-lucide="layout-dashboard"></i></span>
-            Dashboard
+            <span class="nav-text">Dashboard</span>
+            <span class="nav-info" data-tooltip="Overview of stats for requests that went through"><i data-lucide="info"></i></span>
           </li>
           <li class="nav-item" data-tab="logs">
             <span class="nav-icon"><i data-lucide="file-text"></i></span>
-            Message Logs
+            <span class="nav-text">Message Logs</span>
+            <span class="nav-info" data-tooltip="Full logs of requests and responses"><i data-lucide="info"></i></span>
           </li>
           <li class="nav-item" data-tab="settings">
             <span class="nav-icon"><i data-lucide="settings"></i></span>
-            Settings
+            <span class="nav-text">Settings</span>
+            <span class="nav-info" data-tooltip="Categories to be blocked, rate limits and other settings"><i data-lucide="info"></i></span>
           </li>
           <li class="nav-item" data-tab="backends">
             <span class="nav-icon"><i data-lucide="server"></i></span>
-            Backends
+            <span class="nav-text">LLM Gateway</span>
+            <span class="nav-info" data-tooltip="Pass through gateway for your LLMs"><i data-lucide="info"></i></span>
           </li>
           <li class="nav-item" data-tab="howto">
-            <span class="nav-icon"><i data-lucide="book-open"></i></span>
-            How to use
+            <span class="nav-icon"><i data-lucide="plug"></i></span>
+            <span class="nav-text">Use with your agent</span>
+            <span class="nav-info" data-tooltip="Configure Claude Code, Codex, Cursor to use the gateway"><i data-lucide="info"></i></span>
           </li>
         </ul>
         <div class="sidebar-footer">
@@ -114,9 +119,8 @@
 
           <div class="settings-section">
             <div class="card">
-              <div class="card-header">Reverse Proxy Server</div>
+              <div class="card-header">Passthrough Server</div>
               <div class="card-body">
-                <p class="setting-description" style="margin-bottom: 12px;">For tools that support custom base URLs (Claude Code, Codex CLI).</p>
                 <div class="setting-row">
                   <div class="setting-info">
                     <label for="port-input" class="setting-label">Port Number</label>
@@ -173,9 +177,9 @@
           </div>
         </div>
 
-        <!-- Backends Tab -->
+        <!-- LLM Gateway Tab -->
         <div id="backends-tab" class="tab-content">
-          <h1>Custom Backends</h1>
+          <h1>LLM Gateway</h1>
           <p class="page-subtitle">Add custom OpenAI-compatible API endpoints. After adding, restart the proxy to apply changes.</p>
 
           <div class="settings-section">
@@ -252,9 +256,9 @@
           </div>
         </div>
 
-        <!-- How to use Tab -->
+        <!-- Use with your agent Tab -->
         <div id="howto-tab" class="tab-content">
-          <h1>How to use</h1>
+          <h1>Use with your agent</h1>
           <p class="howto-subtitle">Select a tool to see setup instructions for using it with this proxy.</p>
 
           <div class="howto-tools">
