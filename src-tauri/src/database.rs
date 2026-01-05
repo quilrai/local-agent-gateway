@@ -672,26 +672,6 @@ impl Database {
         Ok(settings.unwrap_or_else(|| "{}".to_string()))
     }
 
-    /// Get all predefined backend settings
-    pub fn get_all_predefined_backend_settings(&self) -> Result<Vec<PredefinedBackendSettingsRecord>, rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT name, settings, updated_at FROM predefined_backend_settings ORDER BY name",
-        )?;
-
-        let records = stmt
-            .query_map([], |row| {
-                Ok(PredefinedBackendSettingsRecord {
-                    name: row.get(0)?,
-                    settings: row.get(1)?,
-                    updated_at: row.get(2)?,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(records)
-    }
-
     /// Update settings for a predefined backend
     pub fn update_predefined_backend_settings(&self, name: &str, settings: &str) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
@@ -729,14 +709,6 @@ pub struct CustomBackendRecord {
     pub settings: String,
     pub enabled: bool,
     pub created_at: String,
-}
-
-/// Predefined backend settings record from database
-#[derive(Debug, Clone)]
-pub struct PredefinedBackendSettingsRecord {
-    pub name: String,
-    pub settings: String,
-    pub updated_at: String,
 }
 
 // Port management helpers

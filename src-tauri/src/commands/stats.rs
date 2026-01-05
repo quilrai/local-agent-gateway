@@ -2,7 +2,7 @@
 
 use crate::database::{get_port_from_db, save_port_to_db, DLP_ACTION_BLOCKED, DLP_ACTION_PASSED, DLP_ACTION_REDACTED, DLP_ACTION_RATELIMITED, DLP_ACTION_NOTIFY_RATELIMIT};
 use crate::dlp_pattern_config::get_db_path;
-use crate::{PROXY_PORT, RESTART_SENDER};
+use crate::{PROXY_PORT, PROXY_STATUS, RESTART_SENDER, ProxyStatus};
 use rusqlite::Connection;
 use serde::Serialize;
 
@@ -369,7 +369,7 @@ pub fn get_message_logs(
         )
         .unwrap_or(0);
 
-    let offset = page * 50;
+    let offset = page * 10;
 
     let mut stmt = conn
         .prepare(&format!(
@@ -379,7 +379,7 @@ pub fn get_message_logs(
              FROM requests
              WHERE timestamp >= ?1{}
              ORDER BY id DESC
-             LIMIT 50 OFFSET ?2",
+             LIMIT 10 OFFSET ?2",
             filters
         ))
         .map_err(|e| e.to_string())?;
@@ -416,6 +416,35 @@ pub fn greet(name: &str) -> String {
 #[tauri::command]
 pub fn get_port_setting() -> u16 {
     get_port_from_db()
+}
+
+#[derive(Serialize)]
+pub struct ProxyStatusResponse {
+    pub status: String,  // "starting", "running", "failed"
+    pub port: u16,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub fn get_proxy_status() -> ProxyStatusResponse {
+    let status = PROXY_STATUS.lock().unwrap();
+    match &*status {
+        ProxyStatus::Starting => ProxyStatusResponse {
+            status: "starting".to_string(),
+            port: *PROXY_PORT.lock().unwrap(),
+            error: None,
+        },
+        ProxyStatus::Running(port) => ProxyStatusResponse {
+            status: "running".to_string(),
+            port: *port,
+            error: None,
+        },
+        ProxyStatus::Failed(port, error) => ProxyStatusResponse {
+            status: "failed".to_string(),
+            port: *port,
+            error: Some(error.clone()),
+        },
+    }
 }
 
 #[tauri::command]

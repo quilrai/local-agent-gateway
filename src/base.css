@@ -213,6 +213,27 @@
   animation: pulse 1s infinite;
 }
 
+.status-dot.starting {
+  background: #eab308;
+  box-shadow: 0 0 8px #eab308;
+  animation: pulse 1s infinite;
+}
+
+.status-dot.error {
+  background: #ef4444;
+  box-shadow: 0 0 8px #ef4444;
+}
+
+.proxy-status-link {
+  color: #ef4444;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.proxy-status-link:hover {
+  color: #dc2626;
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }

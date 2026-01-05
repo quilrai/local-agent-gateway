@@ -45,11 +45,21 @@ fn hide_window(app: &AppHandle) {
     }
 }
 
+// Proxy status enum
+#[derive(Clone, Debug)]
+pub enum ProxyStatus {
+    Starting,
+    Running(u16),        // port
+    Failed(u16, String), // port, error message
+}
+
 // Global state for reverse proxy control
 pub static PROXY_PORT: std::sync::LazyLock<Arc<Mutex<u16>>> =
     std::sync::LazyLock::new(|| Arc::new(Mutex::new(DEFAULT_PORT)));
 pub static RESTART_SENDER: std::sync::LazyLock<Arc<Mutex<Option<watch::Sender<bool>>>>> =
     std::sync::LazyLock::new(|| Arc::new(Mutex::new(None)));
+pub static PROXY_STATUS: std::sync::LazyLock<Arc<Mutex<ProxyStatus>>> =
+    std::sync::LazyLock::new(|| Arc::new(Mutex::new(ProxyStatus::Starting)));
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -68,15 +78,16 @@ pub fn run() {
         *current_port = port;
     }
 
-    // Spawn reverse proxy server
-    std::thread::spawn(|| {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(proxy::start_proxy_server());
-    });
-
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // Spawn reverse proxy server with app handle for events
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(proxy::start_proxy_server(app_handle));
+            });
+
             // Create tray menu items
             let show_item = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
             let hide_item = MenuItem::with_id(app, "hide", "Hide", true, None::<&str>)?;
@@ -121,6 +132,7 @@ pub fn run() {
             commands::get_models,
             commands::get_message_logs,
             commands::get_port_setting,
+            commands::get_proxy_status,
             commands::save_port_setting,
             commands::restart_proxy,
             commands::get_dlp_settings,

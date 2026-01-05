@@ -1,5 +1,8 @@
 import { invoke, getCurrentPort, setCurrentPort, escapeHtml } from './utils.js';
 
+// Tauri event listener
+const { listen } = window.__TAURI__.event;
+
 // ============ Status Display ============
 
 // Show status message in settings
@@ -18,19 +21,41 @@ function showSettingsStatus(message, type, elementId = 'settings-status') {
 }
 
 // Update sidebar port display
-function updateProxyStatusDisplay(port, isRestarting = false) {
+function updateProxyStatusDisplay(port, isRestarting = false, isError = false) {
   const statusText = document.getElementById('proxy-status-text');
   const statusDot = document.getElementById('proxy-status-dot');
 
   if (statusText) {
-    statusText.textContent = `Running at localhost:${port}`;
+    if (isError) {
+      statusText.innerHTML = `Failed - <span class="proxy-status-link" id="change-port-link">change port</span>`;
+      // Add click handler for the link
+      const link = document.getElementById('change-port-link');
+      if (link) {
+        link.addEventListener('click', () => {
+          // Switch to settings tab
+          document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+          document.querySelector('[data-tab="settings"]').classList.add('active');
+          document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+          document.getElementById('settings-tab').classList.add('active');
+          // Focus on port input
+          const portInput = document.getElementById('port-input');
+          if (portInput) {
+            portInput.focus();
+            portInput.select();
+          }
+        });
+      }
+    } else {
+      statusText.textContent = `Running at localhost:${port}`;
+    }
   }
 
   if (statusDot) {
-    if (isRestarting) {
+    statusDot.classList.remove('restarting', 'error', 'starting');
+    if (isError) {
+      statusDot.classList.add('error');
+    } else if (isRestarting) {
       statusDot.classList.add('restarting');
-    } else {
-      statusDot.classList.remove('restarting');
     }
   }
 }
@@ -46,9 +71,26 @@ export async function loadPortSetting() {
     if (portInput) {
       portInput.value = port;
     }
-    updateProxyStatusDisplay(port);
+    // Don't update status here - let loadProxyStatus handle it
   } catch (error) {
     console.error('Failed to load port setting:', error);
+  }
+}
+
+// Load and display the actual proxy status from backend
+async function loadProxyStatus() {
+  try {
+    const status = await invoke('get_proxy_status');
+    setCurrentPort(status.port);
+
+    if (status.status === 'running') {
+      updateProxyStatusDisplay(status.port, false, false);
+    } else if (status.status === 'failed') {
+      updateProxyStatusDisplay(status.port, false, true);
+    }
+    // If 'starting', leave it as is (yellow dot)
+  } catch (error) {
+    console.error('Failed to load proxy status:', error);
   }
 }
 
@@ -316,13 +358,11 @@ function renderPatterns(patterns) {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const id = parseInt(btn.dataset.id);
-      if (confirm('Delete this pattern?')) {
-        try {
-          await invoke('delete_dlp_pattern', { id });
-          loadDlpSettings();
-        } catch (error) {
-          alert(`Failed to delete: ${error}`);
-        }
+      try {
+        await invoke('delete_dlp_pattern', { id });
+        await loadDlpSettings();
+      } catch (error) {
+        console.error('Failed to delete pattern:', error);
       }
     });
   });
@@ -503,6 +543,24 @@ export function initSettings() {
 
   // Load settings
   loadPortSetting();
+
+  // Listen for proxy server events (for real-time updates after initial load)
+  listen('proxy-started', (event) => {
+    const { port } = event.payload;
+    setCurrentPort(port);
+    updateProxyStatusDisplay(port, false, false);
+  });
+
+  listen('proxy-failed', (event) => {
+    const { port } = event.payload;
+    updateProxyStatusDisplay(port, false, true);
+  });
+
+  // Query actual proxy status after a short delay
+  // This handles the race condition where the event fired before we registered listeners
+  setTimeout(() => {
+    loadProxyStatus();
+  }, 500);
 
   // Initialize DLP action toggle
   initDlpActionToggle();

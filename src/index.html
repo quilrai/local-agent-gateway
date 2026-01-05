@@ -49,8 +49,8 @@
         </ul>
         <div class="sidebar-footer">
           <div class="proxy-status">
-            <span class="status-dot" id="proxy-status-dot"></span>
-            <span id="proxy-status-text">Running at localhost:8008</span>
+            <span class="status-dot starting" id="proxy-status-dot"></span>
+            <span id="proxy-status-text">Starting gateway...</span>
           </div>
           <div class="sidebar-branding">
             <span class="made-by">made by</span> <a href="https://quilr.ai" target="_blank">Quilr.ai</a>
@@ -283,7 +283,7 @@
             </div>
             <div class="modal-footer">
               <button class="btn btn-secondary" id="cancel-backend-btn">Cancel</button>
-              <button class="btn btn-primary" id="save-backend-btn">Save</button>
+              <button class="btn btn-primary" id="save-backend-btn">Save and Restart Gateway</button>
             </div>
           </div>
         </div>
@@ -350,9 +350,9 @@
               </div>
             </div>
             <div class="modal-footer">
-              <button class="btn btn-secondary" id="reset-predefined-backend-btn">Reset to Defaults</button>
+              <button class="btn btn-secondary" id="reset-predefined-backend-btn">Reset and Restart Gateway</button>
               <button class="btn btn-secondary" id="cancel-predefined-backend-btn">Cancel</button>
-              <button class="btn btn-primary" id="save-predefined-backend-btn">Save</button>
+              <button class="btn btn-primary" id="save-predefined-backend-btn">Save and Restart Gateway</button>
             </div>
           </div>
         </div>

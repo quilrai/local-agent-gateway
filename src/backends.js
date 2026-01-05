@@ -142,7 +142,8 @@ function renderBackends(backends) {
       const id = parseInt(checkbox.dataset.id);
       try {
         await invoke('toggle_custom_backend', { id, enabled: checkbox.checked });
-        showBackendsStatus('Backend updated. Restart proxy to apply changes.', 'info');
+        await invoke('restart_proxy');
+        showBackendsStatus('Backend updated and gateway restarted.', 'success');
         loadCustomBackends();
       } catch (error) {
         console.error('Failed to toggle backend:', error);
@@ -173,7 +174,8 @@ function renderBackends(backends) {
       if (confirm(`Delete backend "${backend?.name}"?`)) {
         try {
           await invoke('delete_custom_backend', { id });
-          showBackendsStatus('Backend deleted. Restart proxy to apply changes.', 'success');
+          await invoke('restart_proxy');
+          showBackendsStatus('Backend deleted and gateway restarted.', 'success');
           loadCustomBackends();
         } catch (error) {
           showBackendsStatus(`Failed to delete: ${error}`, 'error');
@@ -271,7 +273,6 @@ async function saveBackend() {
         baseUrl,
         settings
       });
-      showBackendsStatus('Backend updated. Restart proxy to apply changes.', 'success');
     } else {
       // Add new backend
       await invoke('add_custom_backend', {
@@ -279,15 +280,17 @@ async function saveBackend() {
         baseUrl,
         settings
       });
-      showBackendsStatus('Backend added. Restart proxy to apply changes.', 'success');
     }
+    // Restart proxy to apply changes
+    await invoke('restart_proxy');
+    showBackendsStatus(id ? 'Backend updated and gateway restarted.' : 'Backend added and gateway restarted.', 'success');
     hideBackendModal();
     loadCustomBackends();
   } catch (error) {
     alert(`Failed to save: ${error}`);
   } finally {
     saveBtn.disabled = false;
-    saveBtn.textContent = 'Save';
+    saveBtn.textContent = 'Save and Restart Gateway';
   }
 }
 
@@ -426,14 +429,16 @@ async function savePredefinedBackend() {
 
   try {
     await invoke('update_predefined_backend', { name, settings });
-    showBackendsStatus('Settings updated. Restart proxy to apply changes.', 'success');
+    // Restart proxy to apply changes
+    await invoke('restart_proxy');
+    showBackendsStatus('Settings updated and gateway restarted.', 'success');
     hidePredefinedBackendModal();
     loadPredefinedBackends();
   } catch (error) {
     alert(`Failed to save: ${error}`);
   } finally {
     saveBtn.disabled = false;
-    saveBtn.textContent = 'Save';
+    saveBtn.textContent = 'Save and Restart Gateway';
   }
 }
 
@@ -451,14 +456,16 @@ async function resetPredefinedBackend() {
 
   try {
     await invoke('reset_predefined_backend', { name });
-    showBackendsStatus('Settings reset to defaults. Restart proxy to apply changes.', 'success');
+    // Restart proxy to apply changes
+    await invoke('restart_proxy');
+    showBackendsStatus('Settings reset and gateway restarted.', 'success');
     hidePredefinedBackendModal();
     loadPredefinedBackends();
   } catch (error) {
     alert(`Failed to reset: ${error}`);
   } finally {
     resetBtn.disabled = false;
-    resetBtn.textContent = 'Reset to Defaults';
+    resetBtn.textContent = 'Reset and Restart Gateway';
   }
 }
 

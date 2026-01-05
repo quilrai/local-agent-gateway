@@ -7,7 +7,8 @@ use crate::database::{get_dlp_action_from_db, Database, DLP_ACTION_BLOCKED, DLP_
 use crate::dlp::{apply_dlp_redaction, apply_dlp_unredaction, DlpDetection};
 use crate::dlp_pattern_config::get_db_path;
 use crate::requestresponsemetadata::ResponseMetadata;
-use crate::{PROXY_PORT, RESTART_SENDER};
+use crate::{PROXY_PORT, PROXY_STATUS, RESTART_SENDER, ProxyStatus};
+use tauri::{AppHandle, Emitter};
 
 use axum::{
     body::{Body, Bytes},
@@ -620,10 +621,16 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request) -> impl In
     }
 }
 
-pub async fn start_proxy_server() {
+pub async fn start_proxy_server(app_handle: AppHandle) {
     loop {
         // Get current port
         let port = *PROXY_PORT.lock().unwrap();
+
+        // Set status to starting
+        {
+            let mut status = PROXY_STATUS.lock().unwrap();
+            *status = ProxyStatus::Starting;
+        }
 
         let db_path = get_db_path();
         let db = Database::new(db_path).expect("Failed to initialize database");
@@ -770,11 +777,30 @@ pub async fn start_proxy_server() {
             Ok(l) => l,
             Err(e) => {
                 eprintln!("Failed to bind to port {}: {}", port, e);
+                // Set status to failed
+                {
+                    let mut status = PROXY_STATUS.lock().unwrap();
+                    *status = ProxyStatus::Failed(port, format!("{}", e));
+                }
+                // Emit failure event to frontend
+                let _ = app_handle.emit("proxy-failed", serde_json::json!({
+                    "port": port,
+                    "error": format!("{}", e)
+                }));
                 tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                 continue;
             }
         };
         println!("Proxy server running on http://0.0.0.0:{}", port);
+        // Set status to running
+        {
+            let mut status = PROXY_STATUS.lock().unwrap();
+            *status = ProxyStatus::Running(port);
+        }
+        // Emit success event to frontend
+        let _ = app_handle.emit("proxy-started", serde_json::json!({
+            "port": port
+        }));
 
         // Create shutdown channel
         let (tx, mut rx) = watch::channel(false);
