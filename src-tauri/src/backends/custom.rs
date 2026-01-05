@@ -18,6 +18,12 @@ pub struct CustomBackendSettings {
     /// Rate limit: time window in minutes (default: 1)
     #[serde(default = "default_one")]
     pub rate_limit_minutes: u32,
+    /// Maximum tokens allowed in a request (0 = no limit)
+    #[serde(default)]
+    pub max_tokens_in_a_request: u32,
+    /// Action to take when max tokens is exceeded: "block" or "notify" (default: "block")
+    #[serde(default = "default_block")]
+    pub action_for_max_tokens_in_a_request: String,
 }
 
 fn default_true() -> bool {
@@ -26,6 +32,10 @@ fn default_true() -> bool {
 
 fn default_one() -> u32 {
     1
+}
+
+fn default_block() -> String {
+    "block".to_string()
 }
 
 /// A custom backend that proxies to user-defined OpenAI-compatible endpoints
@@ -205,5 +215,9 @@ impl Backend for CustomBackend {
 
     fn get_rate_limit(&self) -> (u32, u32) {
         (self.settings.rate_limit_requests, self.settings.rate_limit_minutes.max(1))
+    }
+
+    fn get_max_tokens_limit(&self) -> (u32, String) {
+        (self.settings.max_tokens_in_a_request, self.settings.action_for_max_tokens_in_a_request.clone())
     }
 }

@@ -2,6 +2,7 @@ import { invoke, getCurrentPort, escapeHtml } from './utils.js';
 
 // Store backends for editing
 let customBackends = [];
+let predefinedBackends = [];
 
 // Parse settings JSON with defaults
 function parseSettings(settingsJson) {
@@ -10,19 +11,23 @@ function parseSettings(settingsJson) {
     return {
       dlp_enabled: settings.dlp_enabled !== false, // default true
       rate_limit_requests: settings.rate_limit_requests || 0,
-      rate_limit_minutes: settings.rate_limit_minutes || 1
+      rate_limit_minutes: settings.rate_limit_minutes || 1,
+      max_tokens_in_a_request: settings.max_tokens_in_a_request || 0,
+      action_for_max_tokens_in_a_request: settings.action_for_max_tokens_in_a_request || 'block'
     };
   } catch {
-    return { dlp_enabled: true, rate_limit_requests: 0, rate_limit_minutes: 1 };
+    return { dlp_enabled: true, rate_limit_requests: 0, rate_limit_minutes: 1, max_tokens_in_a_request: 0, action_for_max_tokens_in_a_request: 'block' };
   }
 }
 
 // Build settings JSON from form values
-function buildSettingsJson(dlpEnabled, rateRequests, rateMinutes) {
+function buildSettingsJson(dlpEnabled, rateRequests, rateMinutes, maxTokens, maxTokensAction) {
   return JSON.stringify({
     dlp_enabled: dlpEnabled,
     rate_limit_requests: rateRequests,
-    rate_limit_minutes: rateMinutes
+    rate_limit_minutes: rateMinutes,
+    max_tokens_in_a_request: maxTokens,
+    action_for_max_tokens_in_a_request: maxTokensAction
   });
 }
 
@@ -187,12 +192,14 @@ function showBackendModal(backend = null) {
   const dlpEnabledInput = document.getElementById('backend-dlp-enabled');
   const rateRequestsInput = document.getElementById('backend-rate-requests');
   const rateMinutesInput = document.getElementById('backend-rate-minutes');
+  const maxTokensInput = document.getElementById('backend-max-tokens');
+  const maxTokensActionInput = document.getElementById('backend-max-tokens-action');
 
   // Set title
   title.textContent = backend ? 'Edit Backend' : 'Add Backend';
 
   // Parse existing settings or use defaults
-  const settings = backend ? parseSettings(backend.settings) : { dlp_enabled: true, rate_limit_requests: 0, rate_limit_minutes: 1 };
+  const settings = backend ? parseSettings(backend.settings) : { dlp_enabled: true, rate_limit_requests: 0, rate_limit_minutes: 1, max_tokens_in_a_request: 0, action_for_max_tokens_in_a_request: 'block' };
 
   // Reset/populate form
   document.getElementById('backend-id').value = backend ? backend.id : '';
@@ -201,6 +208,8 @@ function showBackendModal(backend = null) {
   dlpEnabledInput.checked = settings.dlp_enabled;
   rateRequestsInput.value = settings.rate_limit_requests;
   rateMinutesInput.value = settings.rate_limit_minutes;
+  maxTokensInput.value = settings.max_tokens_in_a_request;
+  maxTokensActionInput.value = settings.action_for_max_tokens_in_a_request;
 
   // If editing, disable name field (changing name not allowed)
   nameInput.disabled = !!backend;
@@ -232,9 +241,11 @@ async function saveBackend() {
   const dlpEnabled = document.getElementById('backend-dlp-enabled').checked;
   const rateRequests = parseInt(document.getElementById('backend-rate-requests').value) || 0;
   const rateMinutes = parseInt(document.getElementById('backend-rate-minutes').value) || 1;
+  const maxTokens = parseInt(document.getElementById('backend-max-tokens').value) || 0;
+  const maxTokensAction = document.getElementById('backend-max-tokens-action').value || 'block';
 
   // Build settings JSON
-  const settings = buildSettingsJson(dlpEnabled, rateRequests, Math.max(1, rateMinutes));
+  const settings = buildSettingsJson(dlpEnabled, rateRequests, Math.max(1, rateMinutes), maxTokens, maxTokensAction);
 
   // Validation
   if (!name) {
@@ -280,6 +291,181 @@ async function saveBackend() {
   }
 }
 
+// ============================================================================
+// Predefined Backends
+// ============================================================================
+
+// Load predefined backends from backend
+export async function loadPredefinedBackends() {
+  try {
+    predefinedBackends = await invoke('get_predefined_backends');
+    renderPredefinedBackends(predefinedBackends);
+  } catch (error) {
+    console.error('Failed to load predefined backends:', error);
+    const container = document.getElementById('predefined-backends-list');
+    if (container) {
+      container.innerHTML = '<p class="empty-text">Failed to load predefined backends</p>';
+    }
+  }
+}
+
+// Render predefined backends list
+function renderPredefinedBackends(backends) {
+  const container = document.getElementById('predefined-backends-list');
+  if (!container) return;
+
+  const port = getCurrentPort();
+
+  container.innerHTML = backends.map(backend => {
+    const settings = parseSettings(backend.settings);
+    const dlpBadge = settings.dlp_enabled
+      ? '<span class="backend-setting-badge dlp-on">DLP On</span>'
+      : '<span class="backend-setting-badge dlp-off">DLP Off</span>';
+    const rateBadge = settings.rate_limit_requests > 0
+      ? `<span class="backend-setting-badge rate-limit">${settings.rate_limit_requests}/${settings.rate_limit_minutes}min</span>`
+      : '<span class="backend-setting-badge no-rate-limit">No Rate Limit</span>';
+
+    // cursor-hooks doesn't have a proxy URL
+    const proxyUrlHtml = backend.name === 'cursor-hooks'
+      ? ''
+      : `<div class="backend-url">
+          <span class="backend-label">Proxy URL:</span>
+          <code>http://localhost:${port}/${escapeHtml(backend.name)}</code>
+        </div>`;
+
+    return `
+    <div class="backend-item predefined" data-name="${escapeHtml(backend.name)}">
+      <div class="backend-info">
+        <div class="backend-header">
+          <span class="backend-name">${escapeHtml(backend.name)}</span>
+          <span class="backend-status enabled">Pre-defined</span>
+        </div>
+        <div class="backend-details">
+          ${proxyUrlHtml}
+          <div class="backend-url">
+            <span class="backend-label">Target:</span>
+            <code>${escapeHtml(backend.base_url)}</code>
+          </div>
+        </div>
+        <div class="backend-settings-summary">
+          ${dlpBadge}
+          ${rateBadge}
+        </div>
+      </div>
+      <div class="backend-actions">
+        <button class="dlp-pattern-edit predefined-backend-edit" data-name="${escapeHtml(backend.name)}" title="Edit settings">
+          <i data-lucide="pencil"></i>
+        </button>
+      </div>
+    </div>
+  `;
+  }).join('');
+
+  // Re-initialize Lucide icons
+  lucide.createIcons();
+
+  // Add event listeners for edit buttons
+  container.querySelectorAll('.predefined-backend-edit').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const name = btn.dataset.name;
+      const backend = predefinedBackends.find(b => b.name === name);
+      if (backend) {
+        showPredefinedBackendModal(backend);
+      }
+    });
+  });
+}
+
+// Show predefined backend modal for editing
+function showPredefinedBackendModal(backend) {
+  const modal = document.getElementById('predefined-backend-modal');
+  const nameInput = document.getElementById('predefined-backend-name');
+  const nameDisplay = document.getElementById('predefined-backend-name-display');
+  const urlDisplay = document.getElementById('predefined-backend-url-display');
+  const dlpEnabledInput = document.getElementById('predefined-backend-dlp-enabled');
+  const rateRequestsInput = document.getElementById('predefined-backend-rate-requests');
+  const rateMinutesInput = document.getElementById('predefined-backend-rate-minutes');
+  const maxTokensInput = document.getElementById('predefined-backend-max-tokens');
+  const maxTokensActionInput = document.getElementById('predefined-backend-max-tokens-action');
+
+  const settings = parseSettings(backend.settings);
+
+  nameInput.value = backend.name;
+  nameDisplay.value = backend.name;
+  urlDisplay.value = backend.base_url;
+  dlpEnabledInput.checked = settings.dlp_enabled;
+  rateRequestsInput.value = settings.rate_limit_requests;
+  rateMinutesInput.value = settings.rate_limit_minutes;
+  maxTokensInput.value = settings.max_tokens_in_a_request;
+  maxTokensActionInput.value = settings.action_for_max_tokens_in_a_request;
+
+  modal.classList.add('show');
+}
+
+// Hide predefined backend modal
+function hidePredefinedBackendModal() {
+  const modal = document.getElementById('predefined-backend-modal');
+  modal.classList.remove('show');
+}
+
+// Save predefined backend settings
+async function savePredefinedBackend() {
+  const name = document.getElementById('predefined-backend-name').value;
+  const dlpEnabled = document.getElementById('predefined-backend-dlp-enabled').checked;
+  const rateRequests = parseInt(document.getElementById('predefined-backend-rate-requests').value) || 0;
+  const rateMinutes = parseInt(document.getElementById('predefined-backend-rate-minutes').value) || 1;
+  const maxTokens = parseInt(document.getElementById('predefined-backend-max-tokens').value) || 0;
+  const maxTokensAction = document.getElementById('predefined-backend-max-tokens-action').value || 'block';
+
+  const settings = buildSettingsJson(dlpEnabled, rateRequests, Math.max(1, rateMinutes), maxTokens, maxTokensAction);
+
+  const saveBtn = document.getElementById('save-predefined-backend-btn');
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving...';
+
+  try {
+    await invoke('update_predefined_backend', { name, settings });
+    showBackendsStatus('Settings updated. Restart proxy to apply changes.', 'success');
+    hidePredefinedBackendModal();
+    loadPredefinedBackends();
+  } catch (error) {
+    alert(`Failed to save: ${error}`);
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save';
+  }
+}
+
+// Reset predefined backend to defaults
+async function resetPredefinedBackend() {
+  const name = document.getElementById('predefined-backend-name').value;
+
+  if (!confirm(`Reset ${name} settings to defaults?`)) {
+    return;
+  }
+
+  const resetBtn = document.getElementById('reset-predefined-backend-btn');
+  resetBtn.disabled = true;
+  resetBtn.textContent = 'Resetting...';
+
+  try {
+    await invoke('reset_predefined_backend', { name });
+    showBackendsStatus('Settings reset to defaults. Restart proxy to apply changes.', 'success');
+    hidePredefinedBackendModal();
+    loadPredefinedBackends();
+  } catch (error) {
+    alert(`Failed to reset: ${error}`);
+  } finally {
+    resetBtn.disabled = false;
+    resetBtn.textContent = 'Reset to Defaults';
+  }
+}
+
+// ============================================================================
+// Custom Backends (existing code)
+// ============================================================================
+
 // Initialize backends tab
 export function initBackends() {
   // Add backend button
@@ -308,18 +494,43 @@ export function initBackends() {
     });
   }
 
-  // Close modal on Escape key
+  // Predefined backend modal event handlers
+  const predefinedModal = document.getElementById('predefined-backend-modal');
+  const closePredefinedModalBtn = document.getElementById('close-predefined-backend-modal');
+  const cancelPredefinedBtn = document.getElementById('cancel-predefined-backend-btn');
+  const savePredefinedBtn = document.getElementById('save-predefined-backend-btn');
+  const resetPredefinedBtn = document.getElementById('reset-predefined-backend-btn');
+
+  if (closePredefinedModalBtn) closePredefinedModalBtn.addEventListener('click', hidePredefinedBackendModal);
+  if (cancelPredefinedBtn) cancelPredefinedBtn.addEventListener('click', hidePredefinedBackendModal);
+  if (savePredefinedBtn) savePredefinedBtn.addEventListener('click', savePredefinedBackend);
+  if (resetPredefinedBtn) resetPredefinedBtn.addEventListener('click', resetPredefinedBackend);
+
+  if (predefinedModal) {
+    predefinedModal.addEventListener('click', (e) => {
+      if (e.target === predefinedModal) hidePredefinedBackendModal();
+    });
+  }
+
+  // Close modals on Escape key
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && modal?.classList.contains('show')) {
-      hideBackendModal();
+    if (e.key === 'Escape') {
+      if (modal?.classList.contains('show')) {
+        hideBackendModal();
+      }
+      if (predefinedModal?.classList.contains('show')) {
+        hidePredefinedBackendModal();
+      }
     }
   });
 
   // Load backends when tab is clicked
   document.querySelector('[data-tab="backends"]')?.addEventListener('click', () => {
+    loadPredefinedBackends();
     loadCustomBackends();
   });
 
   // Initial load
+  loadPredefinedBackends();
   loadCustomBackends();
 }

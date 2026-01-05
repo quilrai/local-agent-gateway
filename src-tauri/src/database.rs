@@ -20,6 +20,12 @@ pub const DLP_ACTION_REDACTED: i32 = 1;
 /// DLP action: Sensitive data was detected and request was blocked
 pub const DLP_ACTION_BLOCKED: i32 = 2;
 
+/// DLP action: Request was blocked due to rate limit or token limit
+pub const DLP_ACTION_RATELIMITED: i32 = 3;
+
+/// DLP action: Token limit exceeded but request was allowed (notify mode)
+pub const DLP_ACTION_NOTIFY_RATELIMIT: i32 = 4;
+
 /// Thread-safe database wrapper
 #[derive(Clone)]
 pub struct Database {
@@ -165,6 +171,16 @@ impl Database {
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_backends_name ON custom_backends(name)",
             [],
         );
+
+        // Create predefined backend settings table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS predefined_backend_settings (
+                name TEXT PRIMARY KEY,
+                settings TEXT DEFAULT '{}',
+                updated_at TEXT NOT NULL
+            )",
+            [],
+        )?;
 
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -635,6 +651,73 @@ impl Database {
 
         Ok(count > 0)
     }
+
+    // ========================================================================
+    // Predefined Backend Settings Methods
+    // ========================================================================
+
+    /// Get settings for a predefined backend (returns default settings if not set)
+    pub fn get_predefined_backend_settings(&self, name: &str) -> Result<String, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+
+        let settings: Option<String> = conn
+            .query_row(
+                "SELECT settings FROM predefined_backend_settings WHERE name = ?1",
+                rusqlite::params![name],
+                |row| row.get(0),
+            )
+            .ok();
+
+        // Return stored settings or default
+        Ok(settings.unwrap_or_else(|| "{}".to_string()))
+    }
+
+    /// Get all predefined backend settings
+    pub fn get_all_predefined_backend_settings(&self) -> Result<Vec<PredefinedBackendSettingsRecord>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT name, settings, updated_at FROM predefined_backend_settings ORDER BY name",
+        )?;
+
+        let records = stmt
+            .query_map([], |row| {
+                Ok(PredefinedBackendSettingsRecord {
+                    name: row.get(0)?,
+                    settings: row.get(1)?,
+                    updated_at: row.get(2)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(records)
+    }
+
+    /// Update settings for a predefined backend
+    pub fn update_predefined_backend_settings(&self, name: &str, settings: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let updated_at = chrono::Utc::now().to_rfc3339();
+
+        conn.execute(
+            "INSERT INTO predefined_backend_settings (name, settings, updated_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(name) DO UPDATE SET settings = ?2, updated_at = ?3",
+            rusqlite::params![name, settings, updated_at],
+        )?;
+
+        Ok(())
+    }
+
+    /// Reset predefined backend settings to defaults (delete the record)
+    pub fn reset_predefined_backend_settings(&self, name: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+
+        conn.execute(
+            "DELETE FROM predefined_backend_settings WHERE name = ?1",
+            rusqlite::params![name],
+        )?;
+
+        Ok(())
+    }
 }
 
 /// Custom backend record from database
@@ -646,6 +729,14 @@ pub struct CustomBackendRecord {
     pub settings: String,
     pub enabled: bool,
     pub created_at: String,
+}
+
+/// Predefined backend settings record from database
+#[derive(Debug, Clone)]
+pub struct PredefinedBackendSettingsRecord {
+    pub name: String,
+    pub settings: String,
+    pub updated_at: String,
 }
 
 // Port management helpers

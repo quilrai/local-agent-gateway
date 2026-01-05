@@ -3,16 +3,27 @@
 use axum::http::HeaderMap;
 use serde_json::json;
 
+use crate::backends::custom::CustomBackendSettings;
 use crate::backends::Backend;
 use crate::requestresponsemetadata::{RequestMetadata, ResponseMetadata};
 
 pub const CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 
-pub struct CodexBackend;
+pub struct CodexBackend {
+    settings: CustomBackendSettings,
+}
 
 impl CodexBackend {
     pub fn new() -> Self {
-        Self
+        Self {
+            settings: CustomBackendSettings::default(),
+        }
+    }
+
+    pub fn with_settings(settings_json: &str) -> Self {
+        let settings: CustomBackendSettings = serde_json::from_str(settings_json)
+            .unwrap_or_default();
+        Self { settings }
     }
 }
 
@@ -221,5 +232,17 @@ impl Backend for CodexBackend {
         } else {
             Some(serde_json::to_string(&extra).unwrap_or_default())
         }
+    }
+
+    fn is_dlp_enabled(&self) -> bool {
+        self.settings.dlp_enabled
+    }
+
+    fn get_rate_limit(&self) -> (u32, u32) {
+        (self.settings.rate_limit_requests, self.settings.rate_limit_minutes.max(1))
+    }
+
+    fn get_max_tokens_limit(&self) -> (u32, String) {
+        (self.settings.max_tokens_in_a_request, self.settings.action_for_max_tokens_in_a_request.clone())
     }
 }

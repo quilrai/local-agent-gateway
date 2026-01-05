@@ -4,8 +4,10 @@
 // Hooks: beforeSubmitPrompt, beforeReadFile, beforeTabFileRead,
 //        afterAgentResponse, afterAgentThought
 
-use crate::database::{Database, DLP_ACTION_BLOCKED, DLP_ACTION_PASSED};
+use crate::backends::custom::CustomBackendSettings;
+use crate::database::{Database, DLP_ACTION_BLOCKED, DLP_ACTION_PASSED, DLP_ACTION_RATELIMITED};
 use crate::dlp::{check_dlp_patterns, DlpDetection};
+use crate::proxy::RateLimiter;
 use axum::{
     extract::State,
     http::StatusCode,
@@ -15,6 +17,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::Arc;
 
 // ============================================================================
 // Common Input Fields (present in all hooks)
@@ -218,6 +221,8 @@ struct CursorHookMetadata {
 #[derive(Clone)]
 pub struct CursorHooksState {
     pub db: Database,
+    pub rate_limiter: RateLimiter,
+    pub settings: Arc<CustomBackendSettings>,
 }
 
 // ============================================================================
@@ -244,6 +249,55 @@ fn format_detection_message(detections: &[DlpDetection]) -> String {
         ));
     }
     message
+}
+
+/// Check rate limit for cursor hooks (used for before_submit_prompt and before_read_file combined)
+/// Returns (is_allowed, error_message)
+fn check_cursor_rate_limit(
+    rate_limiter: &RateLimiter,
+    settings: &CustomBackendSettings,
+) -> (bool, Option<String>) {
+    let rate_requests = settings.rate_limit_requests;
+    let rate_minutes = settings.rate_limit_minutes.max(1);
+
+    if rate_requests == 0 {
+        return (true, None);
+    }
+
+    // Use a combined key for before_submit_prompt and before_read_file
+    if rate_limiter.check_and_record("cursor-hooks-combined", rate_requests, rate_minutes) {
+        (true, None)
+    } else {
+        (
+            false,
+            Some(format!(
+                "Rate limit exceeded: {} requests per {} minute(s)",
+                rate_requests, rate_minutes
+            )),
+        )
+    }
+}
+
+/// Check token limit for cursor hooks
+/// Returns (is_allowed, error_message)
+fn check_cursor_token_limit(
+    token_count: i32,
+    settings: &CustomBackendSettings,
+) -> (bool, Option<String>) {
+    let max_tokens = settings.max_tokens_in_a_request;
+
+    if max_tokens == 0 || token_count <= max_tokens as i32 {
+        return (true, None);
+    }
+
+    // Cursor only supports block mode
+    (
+        false,
+        Some(format!(
+            "Token limit exceeded: {} tokens (limit: {})",
+            token_count, max_tokens
+        )),
+    )
 }
 
 // ============================================================================
@@ -276,32 +330,124 @@ async fn before_submit_prompt_handler(
         input.attachments.len()
     );
 
-    // Check DLP patterns on prompt text
-    let mut all_detections = check_dlp_patterns(&input.prompt);
+    // Calculate total token count first
     let mut total_token_count = estimate_tokens(&input.prompt);
-
-    // Also check attached files
     for attachment in &input.attachments {
         if let (Some(file_path), Some(att_type)) = (&attachment.file_path, &attachment.attachment_type) {
             if att_type == "file" {
-                // Read and check the file content
-                match std::fs::read_to_string(file_path) {
-                    Ok(content) => {
-                        let file_detections = check_dlp_patterns(&content);
-                        if !file_detections.is_empty() {
-                            println!(
-                                "[CURSOR_HOOK] DLP detected in attached file: {}",
-                                file_path
-                            );
-                            all_detections.extend(file_detections);
+                if let Ok(content) = std::fs::read_to_string(file_path) {
+                    total_token_count += estimate_tokens(&content);
+                }
+            }
+        }
+    }
+
+    // Serialize full input for request_body (before moving fields)
+    let request_body_json = serde_json::to_string(&input).unwrap_or_default();
+
+    // Build extra metadata
+    let metadata = CursorHookMetadata {
+        conversation_id: input.conversation_id.clone(),
+        generation_id: input.generation_id.clone(),
+        hook_event_name: input.hook_event_name.clone(),
+        user_email: input.user_email.clone(),
+        cursor_version: input.cursor_version.clone(),
+        workspace_roots: input.workspace_roots.clone(),
+        file_path: None,
+        thinking_word_count: None,
+    };
+    let metadata_json = serde_json::to_string(&metadata).ok();
+
+    // Check rate limit (for before_submit_prompt and before_read_file combined)
+    let (rate_allowed, rate_error) = check_cursor_rate_limit(&state.rate_limiter, &state.settings);
+    if !rate_allowed {
+        println!(
+            "[CURSOR_HOOK] Rate limited request for generation_id: {}",
+            input.generation_id
+        );
+        let response = BeforeSubmitPromptResponse {
+            should_continue: false,
+            user_message: rate_error,
+        };
+        let response_body_json = serde_json::to_string(&response).unwrap_or_default();
+
+        // Log the rate-limited request
+        let _ = state.db.log_cursor_hook_request(
+            &input.generation_id,
+            "CursorChat",
+            &input.model,
+            total_token_count,
+            0,
+            &request_body_json,
+            &response_body_json,
+            429,
+            metadata_json.as_deref(),
+            None,
+            None,
+            DLP_ACTION_RATELIMITED,
+        );
+
+        return (StatusCode::OK, Json(response));
+    }
+
+    // Check token limit
+    let (token_allowed, token_error) = check_cursor_token_limit(total_token_count, &state.settings);
+    if !token_allowed {
+        println!(
+            "[CURSOR_HOOK] Token limit exceeded for generation_id: {}, tokens: {}",
+            input.generation_id, total_token_count
+        );
+        let response = BeforeSubmitPromptResponse {
+            should_continue: false,
+            user_message: token_error,
+        };
+        let response_body_json = serde_json::to_string(&response).unwrap_or_default();
+
+        // Log the token-limited request
+        let _ = state.db.log_cursor_hook_request(
+            &input.generation_id,
+            "CursorChat",
+            &input.model,
+            total_token_count,
+            0,
+            &request_body_json,
+            &response_body_json,
+            429,
+            metadata_json.as_deref(),
+            None,
+            None,
+            DLP_ACTION_RATELIMITED,
+        );
+
+        return (StatusCode::OK, Json(response));
+    }
+
+    // Check DLP patterns (only if DLP is enabled)
+    let mut all_detections: Vec<DlpDetection> = Vec::new();
+    if state.settings.dlp_enabled {
+        all_detections = check_dlp_patterns(&input.prompt);
+
+        // Also check attached files
+        for attachment in &input.attachments {
+            if let (Some(file_path), Some(att_type)) = (&attachment.file_path, &attachment.attachment_type) {
+                if att_type == "file" {
+                    match std::fs::read_to_string(file_path) {
+                        Ok(content) => {
+                            let file_detections = check_dlp_patterns(&content);
+                            if !file_detections.is_empty() {
+                                println!(
+                                    "[CURSOR_HOOK] DLP detected in attached file: {}",
+                                    file_path
+                                );
+                                all_detections.extend(file_detections);
+                            }
                         }
-                        total_token_count += estimate_tokens(&content);
-                    }
-                    Err(e) => {
-                        println!(
-                            "[CURSOR_HOOK] Error reading attached file {}: {}",
-                            file_path, e
-                        );
+                        Err(e) => {
+                            println!(
+                                "[CURSOR_HOOK] Error reading attached file {}: {}",
+                                file_path, e
+                            );
+                        }
                     }
                 }
             }
@@ -309,23 +455,6 @@ async fn before_submit_prompt_handler(
     }
 
     let is_blocked = !all_detections.is_empty();
-    let token_count = total_token_count;
-
-    // Serialize full input for request_body (before moving fields)
-    let request_body_json = serde_json::to_string(&input).unwrap_or_default();
-
-    // Build extra metadata
-    let metadata = CursorHookMetadata {
-        conversation_id: input.conversation_id,
-        generation_id: input.generation_id.clone(),
-        hook_event_name: input.hook_event_name,
-        user_email: input.user_email,
-        cursor_version: input.cursor_version,
-        workspace_roots: input.workspace_roots,
-        file_path: None,
-        thinking_word_count: None,
-    };
-    let metadata_json = serde_json::to_string(&metadata).ok();
 
     // Create or update request entry
     let response_status = if is_blocked { 403 } else { 200 };
@@ -348,7 +477,7 @@ async fn before_submit_prompt_handler(
         &input.generation_id,
         "CursorChat",
         &input.model,
-        token_count,
+        total_token_count,
         0, // output_tokens will be updated later
         &request_body_json,
         &response_body_json,
@@ -382,8 +511,8 @@ async fn before_read_file_handler(
     let request_body_json = serde_json::to_string(&input).unwrap_or_default();
 
     // Get content: prefer provided content, fallback to reading file
-    let content = match input.content {
-        Some(c) => c,
+    let content = match &input.content {
+        Some(c) => c.clone(),
         None => {
             // Read file from disk
             match std::fs::read_to_string(&input.file_path) {
@@ -407,30 +536,114 @@ async fn before_read_file_handler(
         }
     };
 
-    // Check DLP patterns on main content
-    let mut all_detections = check_dlp_patterns(&content);
+    let token_count = estimate_tokens(&content);
 
-    // Also check attached files if present
-    if let Some(attachments) = &input.attachments {
-        for attachment in attachments {
-            if let (Some(file_path), Some(att_type)) = (&attachment.file_path, &attachment.attachment_type) {
-                if att_type == "file" {
-                    match std::fs::read_to_string(file_path) {
-                        Ok(att_content) => {
-                            let file_detections = check_dlp_patterns(&att_content);
-                            if !file_detections.is_empty() {
-                                println!(
-                                    "[CURSOR_HOOK] DLP detected in attached file: {}",
-                                    file_path
-                                );
-                                all_detections.extend(file_detections);
+    // Build extra metadata
+    let metadata = CursorHookMetadata {
+        conversation_id: input.conversation_id.clone(),
+        generation_id: input.generation_id.clone(),
+        hook_event_name: input.hook_event_name.clone(),
+        user_email: input.user_email.clone(),
+        cursor_version: input.cursor_version.clone(),
+        workspace_roots: input.workspace_roots.clone(),
+        file_path: Some(input.file_path.clone()),
+        thinking_word_count: None,
+    };
+    let metadata_json = serde_json::to_string(&metadata).ok();
+
+    // Check rate limit (for before_submit_prompt and before_read_file combined)
+    let (rate_allowed, rate_error) = check_cursor_rate_limit(&state.rate_limiter, &state.settings);
+    if !rate_allowed {
+        println!(
+            "[CURSOR_HOOK] Rate limited request for generation_id: {}",
+            input.generation_id
+        );
+        let response = BeforeReadFileResponse {
+            permission: "deny".to_string(),
+            user_message: rate_error,
+            agent_message: Some("Request was rate limited.".to_string()),
+        };
+        let response_body_json = serde_json::to_string(&response).unwrap_or_default();
+
+        // Log the rate-limited request
+        let _ = state.db.log_cursor_hook_request(
+            &input.generation_id,
+            "CursorChat",
+            &input.model,
+            token_count,
+            0,
+            &request_body_json,
+            &response_body_json,
+            429,
+            metadata_json.as_deref(),
+            None,
+            None,
+            DLP_ACTION_RATELIMITED,
+        );
+
+        return (StatusCode::OK, Json(response));
+    }
+
+    // Check token limit
+    let (token_allowed, token_error) = check_cursor_token_limit(token_count, &state.settings);
+    if !token_allowed {
+        println!(
+            "[CURSOR_HOOK] Token limit exceeded for generation_id: {}, tokens: {}",
+            input.generation_id, token_count
+        );
+        let response = BeforeReadFileResponse {
+            permission: "deny".to_string(),
+            user_message: token_error,
+            agent_message: Some("Token limit exceeded.".to_string()),
+        };
+        let response_body_json = serde_json::to_string(&response).unwrap_or_default();
+
+        // Log the token-limited request
+        let _ = state.db.log_cursor_hook_request(
+            &input.generation_id,
+            "CursorChat",
+            &input.model,
+            token_count,
+            0,
+            &request_body_json,
+            &response_body_json,
+            429,
+            metadata_json.as_deref(),
+            None,
+            None,
+            DLP_ACTION_RATELIMITED,
+        );
+
+        return (StatusCode::OK, Json(response));
+    }
+
+    // Check DLP patterns (only if DLP is enabled)
+    let mut all_detections: Vec<DlpDetection> = Vec::new();
+    if state.settings.dlp_enabled {
+        all_detections = check_dlp_patterns(&content);
+
+        // Also check attached files if present
+        if let Some(attachments) = &input.attachments {
+            for attachment in attachments {
+                if let (Some(file_path), Some(att_type)) = (&attachment.file_path, &attachment.attachment_type) {
+                    if att_type == "file" {
+                        match std::fs::read_to_string(file_path) {
+                            Ok(att_content) => {
+                                let file_detections = check_dlp_patterns(&att_content);
+                                if !file_detections.is_empty() {
+                                    println!(
+                                        "[CURSOR_HOOK] DLP detected in attached file: {}",
+                                        file_path
+                                    );
+                                    all_detections.extend(file_detections);
+                                }
                             }
-                        }
-                        Err(e) => {
-                            println!(
-                                "[CURSOR_HOOK] Error reading attached file {}: {}",
-                                file_path, e
-                            );
+                            Err(e) => {
+                                println!(
+                                    "[CURSOR_HOOK] Error reading attached file {}: {}",
+                                    file_path, e
+                                );
+                            }
                         }
                     }
                 }
@@ -454,19 +667,6 @@ async fn before_read_file_handler(
         ("allow".to_string(), None, None)
     };
 
-    // Build extra metadata
-    let metadata = CursorHookMetadata {
-        conversation_id: input.conversation_id,
-        generation_id: input.generation_id.clone(),
-        hook_event_name: input.hook_event_name,
-        user_email: input.user_email,
-        cursor_version: input.cursor_version,
-        workspace_roots: input.workspace_roots,
-        file_path: Some(input.file_path.clone()),
-        thinking_word_count: None,
-    };
-    let metadata_json = serde_json::to_string(&metadata).ok();
-
     // Build response
     let response = BeforeReadFileResponse {
         permission: permission.clone(),
@@ -476,7 +676,6 @@ async fn before_read_file_handler(
     let response_body_json = serde_json::to_string(&response).unwrap_or_default();
 
     // Log to database
-    let token_count = estimate_tokens(&content);
     let response_status = if is_blocked { 403 } else { 200 };
     let dlp_action = if is_blocked { DLP_ACTION_BLOCKED } else { DLP_ACTION_PASSED };
 
@@ -504,6 +703,7 @@ async fn before_read_file_handler(
 
 /// POST /cursor_hook/before_tab_file_read
 /// Checks file content for Tab completions, blocks if sensitive data found
+/// NOTE: This endpoint is NOT rate limited (only DLP is applied)
 async fn before_tab_file_read_handler(
     State(state): State<CursorHooksState>,
     Json(input): Json<BeforeTabFileReadInput>,
@@ -539,8 +739,13 @@ async fn before_tab_file_read_handler(
         }
     };
 
-    // Check DLP patterns
-    let detections = check_dlp_patterns(&content);
+    // Check DLP patterns (only if DLP is enabled)
+    // NOTE: before_tab_file_read is NOT rate limited
+    let detections = if state.settings.dlp_enabled {
+        check_dlp_patterns(&content)
+    } else {
+        Vec::new()
+    };
     let is_blocked = !detections.is_empty();
 
     // Build extra metadata
@@ -712,8 +917,16 @@ async fn after_tab_file_edit_handler(
 // Router
 // ============================================================================
 
-pub fn create_cursor_hooks_router(db: Database) -> Router {
-    let state = CursorHooksState { db };
+pub fn create_cursor_hooks_router(
+    db: Database,
+    rate_limiter: RateLimiter,
+    settings: CustomBackendSettings,
+) -> Router {
+    let state = CursorHooksState {
+        db,
+        rate_limiter,
+        settings: Arc::new(settings),
+    };
 
     Router::new()
         .route("/before_submit_prompt", post(before_submit_prompt_handler))

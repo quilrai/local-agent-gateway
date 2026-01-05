@@ -18,7 +18,7 @@
       <!-- Sidebar -->
       <nav class="sidebar">
         <div class="sidebar-header">
-          <h2>Agent Gateway <a href="https://quilr.ai" target="_blank" style="font-size: 0.6em; font-weight: normal; color: inherit; opacity: 0.7; text-decoration: none;">by Quilr</a></h2>
+          <h2>Agent Gateway <span class="header-branding"><span class="made-by">by</span> <a href="https://quilr.ai" target="_blank">Quilr</a></span></h2>
         </div>
         <ul class="nav-tabs">
           <li class="nav-item active" data-tab="home">
@@ -51,6 +51,9 @@
           <div class="proxy-status">
             <span class="status-dot" id="proxy-status-dot"></span>
             <span id="proxy-status-text">Running at localhost:8008</span>
+          </div>
+          <div class="sidebar-branding">
+            <span class="made-by">made by</span> <a href="https://quilr.ai" target="_blank">Quilr.ai</a>
           </div>
         </div>
       </nav>
@@ -96,6 +99,8 @@
                 <option value="passed">Passed</option>
                 <option value="redacted">Redacted</option>
                 <option value="blocked">Blocked</option>
+                <option value="ratelimited">Ratelimited</option>
+                <option value="notify-ratelimit">Notify-Ratelimit</option>
               </select>
               <select id="logs-time-select" class="filter-select">
                 <option value="1h">1 Hour</option>
@@ -180,12 +185,25 @@
         <!-- LLM Gateway Tab -->
         <div id="backends-tab" class="tab-content">
           <h1>LLM Gateway</h1>
-          <p class="page-subtitle">Add custom OpenAI-compatible API endpoints. After adding, restart the proxy to apply changes.</p>
+          <p class="page-subtitle">Configure DLP, rate limits, and token limits for your LLM backends. Restart the proxy to apply changes.</p>
 
           <div class="settings-section">
             <div class="card">
               <div class="card-header">
-                <span>Registered Backends</span>
+                <span>Pre-defined Backends</span>
+              </div>
+              <div class="card-body">
+                <div id="predefined-backends-list" class="backends-list">
+                  <p class="empty-text">Loading backends...</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="card">
+              <div class="card-header">
+                <span>Custom Backends</span>
                 <button id="add-backend-btn" class="btn btn-primary btn-sm">
                   <i data-lucide="plus"></i>
                   Add Backend
@@ -248,10 +266,93 @@
                 </div>
                 <p class="form-hint">Set to 0 requests to disable rate limiting</p>
               </div>
+
+              <div class="form-group">
+                <label>Max Tokens per Request</label>
+                <div class="rate-limit-row">
+                  <input type="number" id="backend-max-tokens" class="form-input rate-input" min="0" value="0" />
+                  <span class="rate-label">tokens</span>
+                  <select id="backend-max-tokens-action" class="form-input" style="width: auto; margin-left: 10px;">
+                    <option value="block">Block</option>
+                    <option value="notify">Notify</option>
+                  </select>
+                  <span class="rate-label">if exceeded</span>
+                </div>
+                <p class="form-hint">Set to 0 to disable token limit. Block will reject the request, Notify will log only.</p>
+              </div>
             </div>
             <div class="modal-footer">
               <button class="btn btn-secondary" id="cancel-backend-btn">Cancel</button>
               <button class="btn btn-primary" id="save-backend-btn">Save</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Edit Predefined Backend Modal -->
+        <div id="predefined-backend-modal" class="modal">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3 id="predefined-backend-modal-title">Edit Backend Settings</h3>
+              <button class="modal-close" id="close-predefined-backend-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+              <input type="hidden" id="predefined-backend-name" value="" />
+
+              <div class="form-group">
+                <label>Backend Name</label>
+                <input type="text" id="predefined-backend-name-display" class="form-input" disabled />
+              </div>
+
+              <div class="form-group">
+                <label>Base URL</label>
+                <input type="text" id="predefined-backend-url-display" class="form-input" disabled />
+              </div>
+
+              <div class="form-divider"></div>
+              <h4 class="form-section-title">Settings</h4>
+
+              <div class="form-group">
+                <div class="setting-toggle-row">
+                  <div class="setting-toggle-info">
+                    <label>DLP Protection</label>
+                    <p class="form-hint">Apply DLP patterns to detect and handle sensitive data</p>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="predefined-backend-dlp-enabled" checked />
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>Rate Limit</label>
+                <div class="rate-limit-row">
+                  <input type="number" id="predefined-backend-rate-requests" class="form-input rate-input" min="0" value="0" />
+                  <span class="rate-label">requests per</span>
+                  <input type="number" id="predefined-backend-rate-minutes" class="form-input rate-input" min="1" value="1" />
+                  <span class="rate-label">minute(s)</span>
+                </div>
+                <p class="form-hint">Set to 0 requests to disable rate limiting</p>
+              </div>
+
+              <div class="form-group">
+                <label>Max Tokens per Request</label>
+                <div class="rate-limit-row">
+                  <input type="number" id="predefined-backend-max-tokens" class="form-input rate-input" min="0" value="0" />
+                  <span class="rate-label">tokens</span>
+                  <select id="predefined-backend-max-tokens-action" class="form-input" style="width: auto; margin-left: 10px;">
+                    <option value="block">Block</option>
+                    <option value="notify">Notify</option>
+                  </select>
+                  <span class="rate-label">if exceeded</span>
+                </div>
+                <p class="form-hint">Set to 0 to disable token limit.</p>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-secondary" id="reset-predefined-backend-btn">Reset to Defaults</button>
+              <button class="btn btn-secondary" id="cancel-predefined-backend-btn">Cancel</button>
+              <button class="btn btn-primary" id="save-predefined-backend-btn">Save</button>
             </div>
           </div>
         </div>

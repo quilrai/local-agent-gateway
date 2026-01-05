@@ -22,6 +22,8 @@ import {
 // Get DLP status info
 function getDlpStatus(dlpAction) {
   switch (dlpAction) {
+    case 4: return { label: 'Notify-Ratelimit', class: 'notify-ratelimit' };
+    case 3: return { label: 'Ratelimited', class: 'ratelimited' };
     case 2: return { label: 'Blocked', class: 'blocked' };
     case 1: return { label: 'Redacted', class: 'redacted' };
     default: return { label: 'Passed', class: 'passed' };

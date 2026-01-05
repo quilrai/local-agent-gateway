@@ -165,6 +165,16 @@
   color: #c2410c;
 }
 
+.log-pill.status.ratelimited {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.log-pill.status.notify-ratelimit {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
 /* Card Stats Row */
 .log-card-stats {
   display: flex;

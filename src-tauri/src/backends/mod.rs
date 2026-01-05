@@ -49,6 +49,13 @@ pub trait Backend: Send + Sync {
     fn get_rate_limit(&self) -> (u32, u32) {
         (0, 1)
     }
+
+    /// Get max tokens limit settings (max_tokens, action)
+    /// action is "block" or "notify"
+    /// Returns (0, "block") by default which means no token limit
+    fn get_max_tokens_limit(&self) -> (u32, String) {
+        (0, "block".to_string())
+    }
 }
 
 // Re-export backends for convenience

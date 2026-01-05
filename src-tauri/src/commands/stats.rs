@@ -1,6 +1,6 @@
 // Stats and Monitoring Tauri Commands
 
-use crate::database::{get_port_from_db, save_port_to_db, DLP_ACTION_BLOCKED, DLP_ACTION_PASSED, DLP_ACTION_REDACTED};
+use crate::database::{get_port_from_db, save_port_to_db, DLP_ACTION_BLOCKED, DLP_ACTION_PASSED, DLP_ACTION_REDACTED, DLP_ACTION_RATELIMITED, DLP_ACTION_NOTIFY_RATELIMIT};
 use crate::dlp_pattern_config::get_db_path;
 use crate::{PROXY_PORT, RESTART_SENDER};
 use rusqlite::Connection;
@@ -350,6 +350,8 @@ pub fn get_message_logs(
         "passed" => format!(" AND COALESCE(dlp_action, 0) = {}", DLP_ACTION_PASSED),
         "redacted" => format!(" AND dlp_action = {}", DLP_ACTION_REDACTED),
         "blocked" => format!(" AND dlp_action = {}", DLP_ACTION_BLOCKED),
+        "ratelimited" => format!(" AND dlp_action = {}", DLP_ACTION_RATELIMITED),
+        "notify-ratelimit" => format!(" AND dlp_action = {}", DLP_ACTION_NOTIFY_RATELIMIT),
         _ => String::new(),
     };
 

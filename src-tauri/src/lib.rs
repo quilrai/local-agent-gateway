@@ -144,6 +144,10 @@ pub fn run() {
             commands::update_custom_backend,
             commands::toggle_custom_backend,
             commands::delete_custom_backend,
+            // Predefined backends commands
+            commands::get_predefined_backends,
+            commands::update_predefined_backend,
+            commands::reset_predefined_backend,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

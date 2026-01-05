@@ -49,6 +49,24 @@
   color: #fff;
 }
 
+.header-branding .made-by {
+  font-size: 0.55em;
+  font-weight: normal;
+  color: rgba(255,255,255,0.5);
+}
+
+.header-branding a {
+  font-size: 0.65em;
+  font-weight: 500;
+  color: #7c3aed;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.header-branding a:hover {
+  color: #a78bfa;
+}
+
 .nav-tabs {
   list-style: none;
   padding: 16px 0;
@@ -157,6 +175,28 @@
   gap: 8px;
   font-size: 0.75rem;
   color: #888;
+}
+
+.sidebar-branding {
+  margin-top: 12px;
+  text-align: center;
+}
+
+.sidebar-branding .made-by {
+  font-size: 0.6rem;
+  color: #555;
+}
+
+.sidebar-branding a {
+  font-size: 0.75rem;
+  color: #7c3aed;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.sidebar-branding a:hover {
+  color: #a78bfa;
 }
 
 .status-dot {

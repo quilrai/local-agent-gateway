@@ -1,8 +1,9 @@
 // HTTP Proxy Server and Handler
 
+use crate::backends::custom::CustomBackendSettings;
 use crate::backends::{Backend, ClaudeBackend, CodexBackend, CustomBackend};
 use crate::cursor_hooks::create_cursor_hooks_router;
-use crate::database::{get_dlp_action_from_db, Database, DLP_ACTION_BLOCKED, DLP_ACTION_PASSED, DLP_ACTION_REDACTED};
+use crate::database::{get_dlp_action_from_db, Database, DLP_ACTION_BLOCKED, DLP_ACTION_PASSED, DLP_ACTION_REDACTED, DLP_ACTION_RATELIMITED, DLP_ACTION_NOTIFY_RATELIMIT};
 use crate::dlp::{apply_dlp_redaction, apply_dlp_unredaction, DlpDetection};
 use crate::dlp_pattern_config::get_db_path;
 use crate::requestresponsemetadata::ResponseMetadata;
@@ -111,6 +112,12 @@ fn format_detection_patterns(detections: &[DlpDetection]) -> String {
     pattern_names.join(", ")
 }
 
+/// Estimate token count from text (words * 1.5)
+fn estimate_tokens(text: &str) -> u32 {
+    let word_count = text.split_whitespace().count();
+    (word_count as f64 * 1.5).ceil() as u32
+}
+
 /// Create Claude API error response body
 fn create_claude_error_response(pattern_names: &str) -> String {
     serde_json::json!({
@@ -170,6 +177,25 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request) -> impl In
 
     let target_url = format!("{}{}", backend.base_url(), full_path);
 
+    // Read request body first (needed for logging rate-limited requests)
+    let body_bytes = match axum::body::to_bytes(req.into_body(), usize::MAX).await {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(Body::from("Failed to read request body"))
+                .unwrap();
+        }
+    };
+
+    let request_body_str = String::from_utf8_lossy(&body_bytes).to_string();
+    let req_meta = backend.parse_request_metadata(&request_body_str);
+    let request_headers_json = headers_to_json(&headers);
+    let should_log = backend.should_log(&request_body_str);
+
+    // Track if we should use notify-ratelimit status (token limit exceeded in notify mode)
+    let mut notify_ratelimit = false;
+
     // Check rate limiting
     let (rate_requests, rate_minutes) = backend.get_rate_limit();
     if rate_requests > 0 && !rate_limiter.check_and_record(backend.name(), rate_requests, rate_minutes) {
@@ -184,6 +210,29 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request) -> impl In
                 "code": "rate_limit_exceeded"
             }
         }).to_string();
+
+        // Log the rate-limited request
+        if should_log {
+            let resp_meta = ResponseMetadata::default();
+            let _ = db.log_request(
+                backend.name(),
+                &method.to_string(),
+                &full_path,
+                "Messages",
+                &request_body_str,
+                &error_body,
+                429,
+                false,
+                0,
+                &req_meta,
+                &resp_meta,
+                None,
+                Some(&request_headers_json),
+                None,
+                DLP_ACTION_RATELIMITED,
+            );
+        }
+
         return Response::builder()
             .status(StatusCode::TOO_MANY_REQUESTS)
             .header("Content-Type", "application/json")
@@ -192,18 +241,56 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request) -> impl In
             .unwrap();
     }
 
-    let body_bytes = match axum::body::to_bytes(req.into_body(), usize::MAX).await {
-        Ok(bytes) => bytes,
-        Err(_) => {
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .body(Body::from("Failed to read request body"))
-                .unwrap();
-        }
-    };
+    // Check token limit (only for requests that should be logged, i.e., messages endpoints)
+    let (max_tokens, token_action) = backend.get_max_tokens_limit();
+    if max_tokens > 0 && should_log {
+        let estimated_tokens = estimate_tokens(&request_body_str);
+        if estimated_tokens > max_tokens {
+            println!(
+                "[PROXY] Token limit exceeded for backend '{}': {} tokens (limit: {}, action: {})",
+                backend.name(), estimated_tokens, max_tokens, token_action
+            );
 
-    let request_body_str = String::from_utf8_lossy(&body_bytes).to_string();
-    let req_meta = backend.parse_request_metadata(&request_body_str);
+            if token_action == "block" {
+                let error_body = serde_json::json!({
+                    "error": {
+                        "message": format!("Token limit exceeded: {} tokens (limit: {})", estimated_tokens, max_tokens),
+                        "type": "rate_limit_error",
+                        "code": "token_limit_exceeded"
+                    }
+                }).to_string();
+
+                // Log the token-limited request
+                let resp_meta = ResponseMetadata::default();
+                let _ = db.log_request(
+                    backend.name(),
+                    &method.to_string(),
+                    &full_path,
+                    "Messages",
+                    &request_body_str,
+                    &error_body,
+                    429,
+                    false,
+                    0,
+                    &req_meta,
+                    &resp_meta,
+                    None,
+                    Some(&request_headers_json),
+                    None,
+                    DLP_ACTION_RATELIMITED,
+                );
+
+                return Response::builder()
+                    .status(StatusCode::TOO_MANY_REQUESTS)
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(error_body))
+                    .unwrap();
+            } else {
+                // Notify mode: allow request but flag for logging
+                notify_ratelimit = true;
+            }
+        }
+    }
 
     // Check if DLP is enabled for this backend
     let dlp_enabled = backend.is_dlp_enabled();
@@ -357,6 +444,7 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request) -> impl In
         let headers_clone = headers.clone();
         let request_headers_json = headers_to_json(&headers);
         let response_headers_json = reqwest_headers_to_json(&resp_headers);
+        let notify_ratelimit_clone = notify_ratelimit;
 
         let collected_chunks: Arc<std::sync::Mutex<Vec<String>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -401,8 +489,15 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request) -> impl In
                     &headers_clone,
                 );
 
-                // Determine dlp_action: redacted if detections, otherwise passed
-                let dlp_action_value = if dlp_detections_clone.is_empty() { DLP_ACTION_PASSED } else { DLP_ACTION_REDACTED };
+                // Determine dlp_action: notify-ratelimit if flagged and no DLP detections,
+                // otherwise redacted if detections, otherwise passed
+                let dlp_action_value = if notify_ratelimit_clone && dlp_detections_clone.is_empty() {
+                    DLP_ACTION_NOTIFY_RATELIMIT
+                } else if dlp_detections_clone.is_empty() {
+                    DLP_ACTION_PASSED
+                } else {
+                    DLP_ACTION_REDACTED
+                };
 
                 if let Ok(request_id) = db_clone.log_request(
                     &backend_name,
@@ -478,8 +573,15 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request) -> impl In
             let request_headers_json = headers_to_json(&headers);
             let response_headers_json = reqwest_headers_to_json(&resp_headers);
 
-            // Determine dlp_action: redacted if detections, otherwise passed
-            let dlp_action_value = if dlp_result.detections.is_empty() { DLP_ACTION_PASSED } else { DLP_ACTION_REDACTED };
+            // Determine dlp_action: notify-ratelimit if flagged and no DLP detections,
+            // otherwise redacted if detections, otherwise passed
+            let dlp_action_value = if notify_ratelimit && dlp_result.detections.is_empty() {
+                DLP_ACTION_NOTIFY_RATELIMIT
+            } else if dlp_result.detections.is_empty() {
+                DLP_ACTION_PASSED
+            } else {
+                DLP_ACTION_REDACTED
+            };
 
             if let Ok(request_id) = db.log_request(
                 backend.name(),
@@ -540,9 +642,35 @@ pub async fn start_proxy_server() {
         // Create shared rate limiter
         let rate_limiter = RateLimiter::new();
 
-        // Create backends
-        let claude_backend: Arc<dyn Backend> = Arc::new(ClaudeBackend::new());
-        let codex_backend: Arc<dyn Backend> = Arc::new(CodexBackend::new());
+        // Load predefined backend settings
+        let claude_settings = db
+            .get_predefined_backend_settings("claude")
+            .unwrap_or_else(|_| "{}".to_string());
+        let codex_settings = db
+            .get_predefined_backend_settings("codex")
+            .unwrap_or_else(|_| "{}".to_string());
+
+        // Create backends with settings
+        let claude_backend: Arc<dyn Backend> = Arc::new(ClaudeBackend::with_settings(&claude_settings));
+        let codex_backend: Arc<dyn Backend> = Arc::new(CodexBackend::with_settings(&codex_settings));
+
+        // Log predefined backend settings
+        let (claude_rate_requests, claude_rate_minutes) = claude_backend.get_rate_limit();
+        let (codex_rate_requests, codex_rate_minutes) = codex_backend.get_rate_limit();
+        if claude_rate_requests > 0 {
+            println!(
+                "[PROXY] Claude backend: rate limit {} requests per {} minute(s), DLP: {}",
+                claude_rate_requests, claude_rate_minutes,
+                if claude_backend.is_dlp_enabled() { "enabled" } else { "disabled" }
+            );
+        }
+        if codex_rate_requests > 0 {
+            println!(
+                "[PROXY] Codex backend: rate limit {} requests per {} minute(s), DLP: {}",
+                codex_rate_requests, codex_rate_minutes,
+                if codex_backend.is_dlp_enabled() { "enabled" } else { "disabled" }
+            );
+        }
 
         // Create states for each backend
         let claude_state = ProxyState {
@@ -564,8 +692,28 @@ pub async fn start_proxy_server() {
             .fallback(proxy_handler)
             .with_state(codex_state);
 
-        // Create cursor hooks router
-        let cursor_hooks_router = create_cursor_hooks_router(db.clone());
+        // Load cursor-hooks settings and create router
+        let cursor_hooks_settings_json = db
+            .get_predefined_backend_settings("cursor-hooks")
+            .unwrap_or_else(|_| "{}".to_string());
+        let cursor_hooks_settings: CustomBackendSettings = serde_json::from_str(&cursor_hooks_settings_json)
+            .unwrap_or_default();
+
+        // Log cursor-hooks settings
+        if cursor_hooks_settings.rate_limit_requests > 0 {
+            println!(
+                "[PROXY] Cursor-hooks: rate limit {} requests per {} minute(s), DLP: {}",
+                cursor_hooks_settings.rate_limit_requests,
+                cursor_hooks_settings.rate_limit_minutes.max(1),
+                if cursor_hooks_settings.dlp_enabled { "enabled" } else { "disabled" }
+            );
+        }
+
+        let cursor_hooks_router = create_cursor_hooks_router(
+            db.clone(),
+            rate_limiter.clone(),
+            cursor_hooks_settings,
+        );
 
         // Build base app with builtin backends
         let mut app = Router::new()
