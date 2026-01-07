@@ -153,6 +153,12 @@ impl Database {
             [],
         )?;
 
+        // Index for faster cleanup of dlp_detections by request_id
+        let _ = conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_dlp_detections_request_id ON dlp_detections(request_id)",
+            [],
+        );
+
         // Create custom backends table
         conn.execute(
             "CREATE TABLE IF NOT EXISTS custom_backends (
@@ -253,6 +259,13 @@ impl Database {
         let cutoff = chrono::Utc::now() - chrono::Duration::days(7);
         let cutoff_ts = cutoff.to_rfc3339();
 
+        // Delete DLP detections for requests that will be deleted (by relationship, not timestamp)
+        conn.execute(
+            "DELETE FROM dlp_detections WHERE request_id IN (SELECT id FROM requests WHERE timestamp < ?1)",
+            rusqlite::params![cutoff_ts],
+        )?;
+
+        // Delete old requests
         conn.execute(
             "DELETE FROM requests WHERE timestamp < ?1",
             rusqlite::params![cutoff_ts],
