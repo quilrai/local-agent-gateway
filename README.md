@@ -1,15 +1,15 @@
 # Quilr local agent gateway
 
-An local llm gateway for monitoring and controlling llm requests (from agents)
+Desktop App for monitoring and controlling llm requests (with focus on coding agents)
 
 ## Features
 
+- Fully local (on-device), desktop app
 - Pass through proxy server for llm requests
 - Block or redact requests with sensitive information (pre-defined patterns and user defined patterns)
 - Warn or Block for high token count requests
 - Customizable rate limiting
 - Searchable Full request log with response
-- Fully on-device
 
 ## How it works
 
@@ -24,3 +24,7 @@ An local llm gateway for monitoring and controlling llm requests (from agents)
 - In the app, you can configure a custom chat completions endpoint
 - This feature is useful if you are using your own token with a LLM endpoint, and you want to monitor / control data
 
+## Detections
+
+- Block or Redact data going to LLMs automatically with intelligent pattern matching
+- Pre-defined patterns for general use cases (API Keys, credentials, etc)
