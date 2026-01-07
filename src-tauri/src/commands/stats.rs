@@ -1,9 +1,7 @@
 // Stats and Monitoring Tauri Commands
 
-use crate::database::{get_port_from_db, save_port_to_db, DLP_ACTION_BLOCKED, DLP_ACTION_PASSED, DLP_ACTION_REDACTED, DLP_ACTION_RATELIMITED, DLP_ACTION_NOTIFY_RATELIMIT};
-use crate::dlp_pattern_config::get_db_path;
+use crate::database::{get_port_from_db, open_connection, save_port_to_db, DLP_ACTION_BLOCKED, DLP_ACTION_PASSED, DLP_ACTION_REDACTED, DLP_ACTION_RATELIMITED, DLP_ACTION_NOTIFY_RATELIMIT};
 use crate::{PROXY_PORT, PROXY_STATUS, RESTART_SENDER, ProxyStatus};
-use rusqlite::Connection;
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -100,7 +98,7 @@ fn get_cutoff_timestamp(hours: i64) -> String {
 
 #[tauri::command]
 pub fn get_dashboard_stats(time_range: String, backend: String) -> Result<DashboardData, String> {
-    let conn = Connection::open(get_db_path()).map_err(|e| e.to_string())?;
+    let conn = open_connection().map_err(|e| e.to_string())?;
 
     let hours = time_range_to_hours(&time_range);
     let cutoff_ts = get_cutoff_timestamp(hours);
@@ -289,7 +287,7 @@ pub fn get_dashboard_stats(time_range: String, backend: String) -> Result<Dashbo
 
 #[tauri::command]
 pub fn get_backends() -> Result<Vec<String>, String> {
-    let conn = Connection::open(get_db_path()).map_err(|e| e.to_string())?;
+    let conn = open_connection().map_err(|e| e.to_string())?;
 
     let mut stmt = conn
         .prepare("SELECT DISTINCT backend FROM requests ORDER BY backend")
@@ -306,7 +304,7 @@ pub fn get_backends() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 pub fn get_models() -> Result<Vec<String>, String> {
-    let conn = Connection::open(get_db_path()).map_err(|e| e.to_string())?;
+    let conn = open_connection().map_err(|e| e.to_string())?;
 
     let mut stmt = conn
         .prepare("SELECT DISTINCT COALESCE(model, 'unknown') FROM requests ORDER BY model")
@@ -330,7 +328,7 @@ pub fn get_message_logs(
     search: String,
     page: i64,
 ) -> Result<PaginatedLogs, String> {
-    let conn = Connection::open(get_db_path()).map_err(|e| e.to_string())?;
+    let conn = open_connection().map_err(|e| e.to_string())?;
 
     let hours = time_range_to_hours(&time_range);
     let cutoff_ts = get_cutoff_timestamp(hours);

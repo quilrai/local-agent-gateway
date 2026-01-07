@@ -25,7 +25,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
@@ -644,6 +644,29 @@ pub async fn start_proxy_server(app_handle: AppHandle) {
                 }
             }
             Err(e) => eprintln!("Failed to cleanup old data: {}", e),
+        }
+
+        // Spawn background compression worker
+        // Runs every 5 minutes, compresses in short bursts to avoid blocking live requests
+        {
+            let db_for_compression = db.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 minutes
+                interval.tick().await; // Skip immediate first tick
+                loop {
+                    interval.tick().await;
+                    let db = db_for_compression.clone();
+                    let result = tokio::task::spawn_blocking(move || {
+                        db.run_compression_maintenance()
+                    }).await;
+
+                    if let Ok(Ok(did_compress)) = result {
+                        if did_compress {
+                            println!("[DB] Background compression maintenance completed");
+                        }
+                    }
+                }
+            });
         }
 
         // Create shared rate limiter

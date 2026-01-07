@@ -36,13 +36,37 @@ impl Database {
     pub fn new(path: &str) -> Result<Self, rusqlite::Error> {
         let conn = Connection::open(path)?;
 
+        // Load zstd compression extension
+        sqlite_zstd::load(&conn).map_err(|e| {
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(1),
+                Some(format!("Failed to load sqlite-zstd: {}", e)),
+            )
+        })?;
+
         // SQLite performance settings
         conn.execute_batch("
             PRAGMA journal_mode = WAL;
             PRAGMA synchronous = NORMAL;
             PRAGMA cache_size = -64000;
             PRAGMA temp_store = MEMORY;
+            PRAGMA busy_timeout = 5000;
         ")?;
+
+        // Check and migrate auto_vacuum mode if needed (one-time migration)
+        // auto_vacuum can only be changed on empty DB or by running VACUUM after setting it
+        let auto_vacuum_mode: i32 = conn
+            .query_row("PRAGMA auto_vacuum", [], |row| row.get(0))
+            .unwrap_or(0);
+        if auto_vacuum_mode != 1 {
+            // 1 = FULL
+            println!("[DB] Migrating auto_vacuum to FULL mode (one-time operation)...");
+            conn.execute_batch("
+                PRAGMA auto_vacuum = FULL;
+                VACUUM;
+            ")?;
+            println!("[DB] auto_vacuum migration complete");
+        }
 
         // Create requests table
         conn.execute(
@@ -188,6 +212,9 @@ impl Database {
             [],
         )?;
 
+        // Enable transparent zstd compression on large columns if not already enabled
+        Self::enable_compression_if_needed(&conn)?;
+
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
@@ -253,6 +280,89 @@ impl Database {
         Ok(())
     }
 
+    /// Enable transparent zstd compression on large text columns
+    /// This is a one-time migration that compresses existing data
+    fn enable_compression_if_needed(conn: &Connection) -> Result<(), rusqlite::Error> {
+        // Check if compression is already enabled (shadow table exists)
+        let is_compressed: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='_requests_zstd'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if is_compressed {
+            // Compression enabled - check how much pending work there is
+            let pending_rows: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM _requests_zstd WHERE request_body IS NOT NULL AND typeof(request_body) = 'text'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+
+            if pending_rows > 100 {
+                // Lots of pending work (likely incomplete migration) - run full compression
+                println!("[DB] Found {} uncompressed rows, running full compression...", pending_rows);
+                let _ = conn.query_row(
+                    "SELECT zstd_incremental_maintenance(null, 1)",
+                    [],
+                    |_| Ok(()),
+                );
+                println!("[DB] Compression complete!");
+            } else if pending_rows > 0 {
+                // Just a few new rows - quick maintenance
+                let _ = conn.query_row(
+                    "SELECT zstd_incremental_maintenance(5.0, 1)",
+                    [],
+                    |_| Ok(()),
+                );
+            }
+            return Ok(());
+        }
+
+        // Enable transparent compression on large columns (even if empty - ready for new data)
+        // Using compression level 3 (fast) with single shared dictionary
+        println!("[DB] Enabling zstd compression on requests table...");
+
+        conn.execute(
+            "SELECT zstd_enable_transparent('{\"table\": \"requests\", \"column\": \"request_body\", \"compression_level\": 3, \"dict_chooser\": \"''all''\"}')",
+            [],
+        )?;
+        conn.execute(
+            "SELECT zstd_enable_transparent('{\"table\": \"requests\", \"column\": \"response_body\", \"compression_level\": 3, \"dict_chooser\": \"''all''\"}')",
+            [],
+        )?;
+        conn.execute(
+            "SELECT zstd_enable_transparent('{\"table\": \"requests\", \"column\": \"request_headers\", \"compression_level\": 3, \"dict_chooser\": \"''all''\"}')",
+            [],
+        )?;
+        conn.execute(
+            "SELECT zstd_enable_transparent('{\"table\": \"requests\", \"column\": \"response_headers\", \"compression_level\": 3, \"dict_chooser\": \"''all''\"}')",
+            [],
+        )?;
+
+        // Check if there's existing data to compress
+        let row_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM _requests_zstd", [], |row| row.get(0))
+            .unwrap_or(0);
+
+        if row_count > 0 {
+            println!("[DB] Compressing {} existing rows (this may take a moment)...", row_count);
+            conn.query_row(
+                "SELECT zstd_incremental_maintenance(null, 1)",
+                [],
+                |_| Ok(()),
+            )?;
+            println!("[DB] Compression complete!");
+        } else {
+            println!("[DB] Compression enabled, ready for new data.");
+        }
+
+        Ok(())
+    }
+
     /// Clean up data older than 7 days
     pub fn cleanup_old_data(&self) -> Result<usize, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
@@ -270,6 +380,50 @@ impl Database {
             "DELETE FROM requests WHERE timestamp < ?1",
             rusqlite::params![cutoff_ts],
         )
+    }
+
+    /// Run incremental compression maintenance if needed
+    /// Returns Ok(true) if compression was performed, Ok(false) if skipped
+    /// This is designed to be called periodically from a background task
+    pub fn run_compression_maintenance(&self) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+
+        // Check if compression is enabled (shadow table exists)
+        let is_compressed: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='_requests_zstd'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+
+        if !is_compressed {
+            return Ok(false);
+        }
+
+        // Check how many uncompressed rows we have (fast query)
+        let pending: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM _requests_zstd WHERE request_body IS NOT NULL AND typeof(request_body) = 'text'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        // Only compress if we have > 20 pending rows (avoid unnecessary work)
+        if pending <= 20 {
+            return Ok(false);
+        }
+
+        // Very short burst (1 sec), low db_load (0.25 = 75% time available for other queries)
+        // This means actual lock time is ~250ms max per cycle
+        let _ = conn.query_row(
+            "SELECT zstd_incremental_maintenance(1.0, 0.25)",
+            [],
+            |_| Ok(()),
+        );
+
+        Ok(true)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -724,10 +878,22 @@ pub struct CustomBackendRecord {
     pub created_at: String,
 }
 
+// Helper to open connection with zstd extension loaded
+pub fn open_connection() -> Result<Connection, rusqlite::Error> {
+    let conn = Connection::open(get_db_path())?;
+    sqlite_zstd::load(&conn).map_err(|e| {
+        rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(1),
+            Some(format!("Failed to load sqlite-zstd: {}", e)),
+        )
+    })?;
+    Ok(conn)
+}
+
 // Port management helpers
 
 pub fn get_port_from_db() -> u16 {
-    let conn = match Connection::open(get_db_path()) {
+    let conn = match open_connection() {
         Ok(c) => c,
         Err(_) => return DEFAULT_PORT,
     };
@@ -749,7 +915,7 @@ pub fn get_port_from_db() -> u16 {
 }
 
 pub fn save_port_to_db(port: u16) -> Result<(), String> {
-    let conn = Connection::open(get_db_path()).map_err(|e| e.to_string())?;
+    let conn = open_connection().map_err(|e| e.to_string())?;
 
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('proxy_port', ?1)",
@@ -763,7 +929,7 @@ pub fn save_port_to_db(port: u16) -> Result<(), String> {
 // DLP action setting helpers
 
 pub fn get_dlp_action_from_db() -> String {
-    let conn = match Connection::open(get_db_path()) {
+    let conn = match open_connection() {
         Ok(c) => c,
         Err(_) => return "block".to_string(),
     };
@@ -788,7 +954,7 @@ pub fn save_dlp_action_to_db(action: &str) -> Result<(), String> {
         return Err("Invalid dlp_action value. Must be 'redact' or 'block'".to_string());
     }
 
-    let conn = Connection::open(get_db_path()).map_err(|e| e.to_string())?;
+    let conn = open_connection().map_err(|e| e.to_string())?;
 
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('dlp_action', ?1)",

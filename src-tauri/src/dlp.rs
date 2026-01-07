@@ -1,11 +1,10 @@
 // DLP (Data Loss Prevention) Redaction Logic
 
-use crate::dlp_pattern_config::get_db_path;
+use crate::database::open_connection;
 use crate::pattern_utils::{
     compile_pattern_set, count_unique_chars, is_match_excluded_by_context,
 };
 use regex::Regex;
-use rusqlite::Connection;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug)]
@@ -39,7 +38,7 @@ pub struct CompiledDlpPattern {
 pub fn get_enabled_dlp_patterns() -> Vec<CompiledDlpPattern> {
     let mut patterns: Vec<CompiledDlpPattern> = Vec::new();
 
-    let conn = match Connection::open(get_db_path()) {
+    let conn = match open_connection() {
         Ok(c) => c,
         Err(_) => return patterns,
     };

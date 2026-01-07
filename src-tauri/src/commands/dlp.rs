@@ -1,11 +1,9 @@
 // DLP Settings Tauri Commands
 
-use crate::database::{get_dlp_action_from_db, save_dlp_action_to_db};
-use crate::dlp_pattern_config::get_db_path;
+use crate::database::{get_dlp_action_from_db, open_connection, save_dlp_action_to_db};
 use crate::pattern_utils::{
     collect_matches_with_negative_context, compile_pattern_set, filter_by_min_occurrences,
 };
-use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -29,7 +27,7 @@ pub struct DlpSettings {
 
 #[tauri::command]
 pub fn get_dlp_settings() -> Result<DlpSettings, String> {
-    let conn = Connection::open(get_db_path()).map_err(|e| e.to_string())?;
+    let conn = open_connection().map_err(|e| e.to_string())?;
 
     // Get all patterns (builtin and custom)
     let mut stmt = conn
@@ -86,7 +84,7 @@ pub fn add_dlp_pattern(
         return Err("At least one pattern is required".to_string());
     }
 
-    let conn = Connection::open(get_db_path()).map_err(|e| e.to_string())?;
+    let conn = open_connection().map_err(|e| e.to_string())?;
     let patterns_json = serde_json::to_string(&patterns).map_err(|e| e.to_string())?;
     let negative_patterns_json = negative_patterns
         .as_ref()
@@ -124,7 +122,7 @@ pub fn update_dlp_pattern(
     min_occurrences: Option<i32>,
     min_unique_chars: Option<i32>,
 ) -> Result<(), String> {
-    let conn = Connection::open(get_db_path()).map_err(|e| e.to_string())?;
+    let conn = open_connection().map_err(|e| e.to_string())?;
 
     // Build dynamic update query based on provided fields
     let mut updates: Vec<String> = Vec::new();
@@ -211,7 +209,7 @@ pub fn update_dlp_pattern(
 
 #[tauri::command]
 pub fn toggle_dlp_pattern(id: i64, enabled: bool) -> Result<(), String> {
-    let conn = Connection::open(get_db_path()).map_err(|e| e.to_string())?;
+    let conn = open_connection().map_err(|e| e.to_string())?;
 
     conn.execute(
         "UPDATE dlp_patterns SET enabled = ?1 WHERE id = ?2",
@@ -224,7 +222,7 @@ pub fn toggle_dlp_pattern(id: i64, enabled: bool) -> Result<(), String> {
 
 #[tauri::command]
 pub fn delete_dlp_pattern(id: i64) -> Result<(), String> {
-    let conn = Connection::open(get_db_path()).map_err(|e| e.to_string())?;
+    let conn = open_connection().map_err(|e| e.to_string())?;
 
     // Prevent deleting builtin patterns
     let is_builtin: bool = conn
@@ -275,7 +273,7 @@ pub struct PatternCount {
 
 #[tauri::command]
 pub fn get_dlp_detection_stats(time_range: String) -> Result<DlpStats, String> {
-    let conn = Connection::open(get_db_path()).map_err(|e| e.to_string())?;
+    let conn = open_connection().map_err(|e| e.to_string())?;
 
     // Ensure table exists
     let _ = conn.execute(
@@ -365,7 +363,7 @@ pub fn get_dlp_detection_stats(time_range: String) -> Result<DlpStats, String> {
 
 #[tauri::command]
 pub fn get_dlp_detections_for_request(request_id: i64) -> Result<Vec<DlpDetectionRecord>, String> {
-    let conn = Connection::open(get_db_path()).map_err(|e| e.to_string())?;
+    let conn = open_connection().map_err(|e| e.to_string())?;
 
     let mut stmt = conn
         .prepare(
