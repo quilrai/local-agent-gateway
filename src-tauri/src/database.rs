@@ -183,6 +183,24 @@ impl Database {
             [],
         );
 
+        // Create tool_calls table (no FK constraint - requests is a view due to zstd compression)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tool_calls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id INTEGER NOT NULL,
+                tool_call_id TEXT NOT NULL,
+                tool_name TEXT NOT NULL,
+                tool_input TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        // Index for faster lookup of tool_calls by request_id
+        let _ = conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tool_calls_request_id ON tool_calls(request_id)",
+            [],
+        );
+
         // Create custom backends table
         conn.execute(
             "CREATE TABLE IF NOT EXISTS custom_backends (
@@ -215,9 +233,152 @@ impl Database {
         // Enable transparent zstd compression on large columns if not already enabled
         Self::enable_compression_if_needed(&conn)?;
 
+        // Backfill tool_calls for existing requests
+        Self::backfill_tool_calls(&conn);
+
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
+    }
+
+    /// One-time backfill of tool_calls from existing response bodies
+    fn backfill_tool_calls(conn: &Connection) {
+        // Check if backfill already done
+        let already_done: bool = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'tool_calls_backfill_done'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .map(|v| v == "true")
+            .unwrap_or(false);
+
+        if already_done {
+            return;
+        }
+
+        println!("[DB] Backfilling tool_calls from existing requests...");
+
+        // Get all Claude requests that might have tool calls
+        let mut stmt = match conn.prepare(
+            "SELECT id, response_body, is_streaming FROM requests WHERE backend = 'claude' AND response_body IS NOT NULL"
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                println!("[DB] Failed to prepare backfill query: {}", e);
+                return;
+            }
+        };
+
+        let rows: Vec<(i64, String, bool)> = match stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1).unwrap_or_default(),
+                row.get::<_, i32>(2).unwrap_or(0) == 1,
+            ))
+        }) {
+            Ok(iter) => iter.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                println!("[DB] Failed to query requests for backfill: {}", e);
+                return;
+            }
+        };
+
+        let mut total_tool_calls = 0;
+        for (request_id, response_body, is_streaming) in rows {
+            let tool_calls = Self::extract_tool_calls_from_response(&response_body, is_streaming);
+            for tc in &tool_calls {
+                let input_json = serde_json::to_string(&tc.input).unwrap_or_default();
+                if conn.execute(
+                    "INSERT INTO tool_calls (request_id, tool_call_id, tool_name, tool_input) VALUES (?1, ?2, ?3, ?4)",
+                    rusqlite::params![request_id, tc.id, tc.name, input_json],
+                ).is_ok() {
+                    total_tool_calls += 1;
+                }
+            }
+        }
+
+        // Mark backfill as done
+        let _ = conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('tool_calls_backfill_done', 'true')",
+            [],
+        );
+
+        println!("[DB] Backfill complete. Extracted {} tool calls.", total_tool_calls);
+    }
+
+    /// Extract tool calls from a response body (used for backfill)
+    fn extract_tool_calls_from_response(body: &str, is_streaming: bool) -> Vec<crate::requestresponsemetadata::ToolCall> {
+        use std::collections::HashMap;
+        use crate::requestresponsemetadata::ToolCall;
+
+        let mut tool_calls = Vec::new();
+
+        if is_streaming {
+            let mut tool_calls_map: HashMap<i64, (String, String, String)> = HashMap::new();
+
+            for line in body.lines() {
+                if !line.starts_with("data: ") {
+                    continue;
+                }
+                let json_str = &line[6..];
+
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
+                    let event_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+                    match event_type {
+                        "content_block_start" => {
+                            if let Some(content_block) = json.get("content_block") {
+                                if content_block.get("type").and_then(|v| v.as_str()) == Some("tool_use") {
+                                    let index = json.get("index").and_then(|v| v.as_i64()).unwrap_or(0);
+                                    let id = content_block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                    let name = content_block.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                    tool_calls_map.insert(index, (id, name, String::new()));
+                                }
+                            }
+                        }
+                        "content_block_delta" => {
+                            if let Some(delta) = json.get("delta") {
+                                if delta.get("type").and_then(|v| v.as_str()) == Some("input_json_delta") {
+                                    let index = json.get("index").and_then(|v| v.as_i64()).unwrap_or(0);
+                                    if let Some(partial_json) = delta.get("partial_json").and_then(|v| v.as_str()) {
+                                        if let Some(entry) = tool_calls_map.get_mut(&index) {
+                                            entry.2.push_str(partial_json);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            let mut sorted: Vec<(i64, ToolCall)> = tool_calls_map
+                .into_iter()
+                .map(|(index, (id, name, input_str))| {
+                    let input = serde_json::from_str(&input_str).unwrap_or(serde_json::Value::Null);
+                    (index, ToolCall { id, name, input })
+                })
+                .collect();
+            sorted.sort_by_key(|(index, _)| *index);
+            tool_calls = sorted.into_iter().map(|(_, tc)| tc).collect();
+        } else {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(body) {
+                if let Some(content) = json.get("content").and_then(|v| v.as_array()) {
+                    for block in content {
+                        if block.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+                            let id = block.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let input = block.get("input").cloned().unwrap_or(serde_json::Value::Null);
+                            tool_calls.push(ToolCall { id, name, input });
+                        }
+                    }
+                }
+            }
+        }
+
+        tool_calls
     }
 
     /// Seed builtin DLP patterns, overwriting if they already exist
@@ -509,6 +670,34 @@ impl Database {
                     detection.original_value,
                     detection.placeholder,
                     detection.message_index,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    pub fn log_tool_calls(
+        &self,
+        request_id: i64,
+        tool_calls: &[crate::requestresponsemetadata::ToolCall],
+    ) -> Result<(), rusqlite::Error> {
+        if tool_calls.is_empty() {
+            return Ok(());
+        }
+
+        let conn = self.conn.lock().unwrap();
+
+        for tool_call in tool_calls {
+            let input_json = serde_json::to_string(&tool_call.input).unwrap_or_default();
+            conn.execute(
+                "INSERT INTO tool_calls (request_id, tool_call_id, tool_name, tool_input)
+                 VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![
+                    request_id,
+                    tool_call.id,
+                    tool_call.name,
+                    input_json,
                 ],
             )?;
         }

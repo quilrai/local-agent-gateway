@@ -1,6 +1,8 @@
 // Common Request and Response Metadata Structures
 // These are the normalized formats that all backends produce
 
+use serde::{Deserialize, Serialize};
+
 /// Metadata extracted from API requests
 #[derive(Default, Clone)]
 pub struct RequestMetadata {
@@ -9,6 +11,14 @@ pub struct RequestMetadata {
     pub has_tools: bool,
     pub user_message_count: i32,
     pub assistant_message_count: i32,
+}
+
+/// Represents a single tool call made by the LLM
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub id: String,
+    pub name: String,
+    pub input: serde_json::Value,
 }
 
 /// Metadata extracted from API responses
@@ -20,4 +30,5 @@ pub struct ResponseMetadata {
     pub cache_creation_tokens: i32,
     pub stop_reason: Option<String>,
     pub has_thinking: bool,
+    pub tool_calls: Vec<ToolCall>,
 }

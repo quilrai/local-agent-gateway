@@ -146,6 +146,10 @@ pub fn run() {
             commands::get_dlp_action_setting,
             commands::save_dlp_action_setting,
             commands::test_dlp_pattern,
+            // Tool call commands
+            commands::get_tool_calls_for_request,
+            commands::get_tool_call_stats,
+            commands::get_tool_call_insights,
             commands::set_shell_env,
             commands::check_shell_env,
             commands::remove_shell_env,

@@ -45,6 +45,16 @@
   position: relative;
 }
 
+.card-body.chart-container-md {
+  height: 280px;
+  position: relative;
+}
+
+.card-body.chart-container-lg {
+  height: 320px;
+  position: relative;
+}
+
 /* ============ Buttons ============ */
 
 .btn {

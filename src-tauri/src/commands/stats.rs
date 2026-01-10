@@ -783,3 +783,213 @@ fn update_shell_config(path: &str, export_line: &str, env_var: &str) -> Result<(
 
     Ok(())
 }
+
+// ========================================================================
+// Tool Call Commands
+// ========================================================================
+
+#[derive(Serialize)]
+pub struct ToolCallRecord {
+    pub id: i64,
+    pub request_id: i64,
+    pub tool_call_id: String,
+    pub tool_name: String,
+    pub tool_input: String,
+}
+
+#[derive(Serialize)]
+pub struct ToolCallStats {
+    pub tool_name: String,
+    pub count: i64,
+}
+
+#[tauri::command]
+pub fn get_tool_calls_for_request(request_id: i64) -> Result<Vec<ToolCallRecord>, String> {
+    let conn = open_connection().map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, request_id, tool_call_id, tool_name, tool_input
+             FROM tool_calls WHERE request_id = ?1 ORDER BY id ASC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let tool_calls: Vec<ToolCallRecord> = stmt
+        .query_map([request_id], |row| {
+            Ok(ToolCallRecord {
+                id: row.get(0)?,
+                request_id: row.get(1)?,
+                tool_call_id: row.get(2)?,
+                tool_name: row.get(3)?,
+                tool_input: row.get(4)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(tool_calls)
+}
+
+#[tauri::command]
+pub fn get_tool_call_stats(time_range: String, backend: String) -> Result<Vec<ToolCallStats>, String> {
+    let conn = open_connection().map_err(|e| e.to_string())?;
+
+    let hours = time_range_to_hours(&time_range);
+    let cutoff_ts = get_cutoff_timestamp(hours);
+
+    // Build backend filter clause
+    let backend_filter = if backend == "all" {
+        String::new()
+    } else {
+        format!(" AND r.backend = '{}'", backend.replace('\'', "''"))
+    };
+
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT tc.tool_name, COUNT(*) as count
+             FROM tool_calls tc
+             JOIN requests r ON tc.request_id = r.id
+             WHERE r.timestamp >= ?1{}
+             GROUP BY tc.tool_name
+             ORDER BY count DESC
+             LIMIT 20",
+            backend_filter
+        ))
+        .map_err(|e| e.to_string())?;
+
+    let stats: Vec<ToolCallStats> = stmt
+        .query_map([&cutoff_ts], |row| {
+            Ok(ToolCallStats {
+                tool_name: row.get(0)?,
+                count: row.get(1)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(stats)
+}
+
+#[derive(Serialize)]
+pub struct ToolTargetStats {
+    pub target: String,
+    pub count: i64,
+}
+
+#[derive(Serialize)]
+pub struct ToolWithTargets {
+    pub tool_name: String,
+    pub count: i64,
+    pub targets: Vec<ToolTargetStats>,
+}
+
+#[derive(Serialize)]
+pub struct ToolInsights {
+    pub tools: Vec<ToolWithTargets>,
+}
+
+/// Extract target from tool input JSON
+fn extract_target(tool_name: &str, tool_input: &str) -> Option<String> {
+    let json: serde_json::Value = serde_json::from_str(tool_input).ok()?;
+
+    match tool_name {
+        // File-based tools: extract filename from path
+        "Read" | "Write" | "Edit" | "NotebookEdit" => {
+            let path = json.get("file_path").or_else(|| json.get("notebook_path"))?.as_str()?;
+            Some(path.rsplit('/').next()?.to_string())
+        }
+        "Glob" | "Grep" => {
+            // For Glob/Grep, use path if available, otherwise pattern
+            if let Some(path) = json.get("path").and_then(|v| v.as_str()) {
+                Some(path.rsplit('/').next()?.to_string())
+            } else if let Some(pattern) = json.get("pattern").and_then(|v| v.as_str()) {
+                Some(pattern.chars().take(20).collect())
+            } else {
+                None
+            }
+        }
+        // Bash: extract first word of command
+        "Bash" => {
+            let cmd = json.get("command")?.as_str()?;
+            let first_word = cmd.trim().split_whitespace().next()?;
+            let clean = first_word.trim_start_matches("sudo ");
+            Some(clean.split('/').last()?.to_string())
+        }
+        _ => None
+    }
+}
+
+#[tauri::command]
+pub fn get_tool_call_insights(time_range: String, backend: String) -> Result<ToolInsights, String> {
+    let conn = open_connection().map_err(|e| e.to_string())?;
+
+    let hours = time_range_to_hours(&time_range);
+    let cutoff_ts = get_cutoff_timestamp(hours);
+
+    let backend_filter = if backend == "all" {
+        String::new()
+    } else {
+        format!(" AND r.backend = '{}'", backend.replace('\'', "''"))
+    };
+
+    // Get raw tool calls
+    let mut calls_stmt = conn
+        .prepare(&format!(
+            "SELECT tc.tool_name, tc.tool_input
+             FROM tool_calls tc
+             JOIN requests r ON tc.request_id = r.id
+             WHERE r.timestamp >= ?1{}",
+            backend_filter
+        ))
+        .map_err(|e| e.to_string())?;
+
+    let calls: Vec<(String, String)> = calls_stmt
+        .query_map([&cutoff_ts], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Count tools and targets
+    use std::collections::HashMap;
+    let mut tool_counts: HashMap<String, i64> = HashMap::new();
+    let mut target_counts: HashMap<String, HashMap<String, i64>> = HashMap::new();
+
+    for (tool_name, tool_input) in calls {
+        *tool_counts.entry(tool_name.clone()).or_insert(0) += 1;
+
+        if let Some(target) = extract_target(&tool_name, &tool_input) {
+            *target_counts
+                .entry(tool_name)
+                .or_default()
+                .entry(target)
+                .or_insert(0) += 1;
+        }
+    }
+
+    // Build sorted tools with their top targets
+    let mut tools: Vec<ToolWithTargets> = tool_counts
+        .into_iter()
+        .map(|(tool_name, count)| {
+            let mut targets: Vec<ToolTargetStats> = target_counts
+                .remove(&tool_name)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(target, count)| ToolTargetStats { target, count })
+                .collect();
+
+            targets.sort_by(|a, b| b.count.cmp(&a.count));
+            targets.truncate(5); // Top 5 targets per tool
+
+            ToolWithTargets { tool_name, count, targets }
+        })
+        .collect();
+
+    tools.sort_by(|a, b| b.count.cmp(&a.count));
+    tools.truncate(8); // Top 8 tools
+
+    Ok(ToolInsights { tools })
+}

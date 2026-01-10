@@ -6,10 +6,10 @@ import {
   setCurrentBackend,
   formatNumber
 } from './utils.js';
-import { destroyCharts, createModelsChart, createTokenChart, createLatencyChart, createDlpChart } from './charts.js';
+import { destroyCharts, createModelsChart, createTokenChart, createLatencyChart, createDlpChart, createToolInsightsChart } from './charts.js';
 
 // Render dashboard HTML
-function renderDashboard(data, dlpStats) {
+function renderDashboard(data, dlpStats, toolInsights) {
   const { models, features, token_totals, recent_requests, latency_points } = data;
 
   const pct = (val) => features.total_requests > 0 ? Math.round((val / features.total_requests) * 100) : 0;
@@ -109,6 +109,19 @@ function renderDashboard(data, dlpStats) {
       </div>
     </div>
 
+    <!-- Tool Insights -->
+    <div class="charts-grid">
+      <div class="card full-width">
+        <div class="card-header">
+          Tool Insights
+          <span class="badge">${toolInsights.tools.reduce((sum, t) => sum + t.count, 0)} calls / ${toolInsights.tools.length} tools</span>
+        </div>
+        <div class="card-body chart-container-lg" id="tool-insights-chart">
+          ${toolInsights.tools.length === 0 ? '<p class="empty-text">No tool calls</p>' : ''}
+        </div>
+      </div>
+    </div>
+
     <!-- Detections -->
     <div class="charts-grid">
       <div class="card full-width">
@@ -133,13 +146,14 @@ export async function loadDashboard() {
   destroyCharts();
 
   try {
-    // Load dashboard stats and DLP stats in parallel
-    const [data, dlpStats] = await Promise.all([
+    // Load dashboard stats, DLP stats, and tool insights in parallel
+    const [data, dlpStats, toolInsights] = await Promise.all([
       invoke('get_dashboard_stats', { timeRange: currentTimeRange, backend: currentBackend }),
-      invoke('get_dlp_detection_stats', { timeRange: currentTimeRange })
+      invoke('get_dlp_detection_stats', { timeRange: currentTimeRange }),
+      invoke('get_tool_call_insights', { timeRange: currentTimeRange, backend: currentBackend })
     ]);
 
-    if (data.total_requests === 0 && dlpStats.total_detections === 0) {
+    if (data.total_requests === 0 && dlpStats.total_detections === 0 && toolInsights.tools.length === 0) {
       content.innerHTML = `
         <div class="empty-state">
           <h3>No data yet</h3>
@@ -152,7 +166,7 @@ export async function loadDashboard() {
       return;
     }
 
-    content.innerHTML = renderDashboard(data, dlpStats);
+    content.innerHTML = renderDashboard(data, dlpStats, toolInsights);
 
     // Create charts after DOM is updated
     setTimeout(() => {
@@ -164,6 +178,9 @@ export async function loadDashboard() {
       }
       if (data.latency_points.length > 0) {
         createLatencyChart(document.getElementById('latency-chart'), data.latency_points);
+      }
+      if (toolInsights.tools.length > 0) {
+        createToolInsightsChart(document.getElementById('tool-insights-chart'), toolInsights);
       }
       if (dlpStats && dlpStats.detections_by_pattern.length > 0) {
         createDlpChart(document.getElementById('dlp-chart'), dlpStats.detections_by_pattern);

@@ -180,6 +180,173 @@ export function createLatencyChart(container, latencyPoints) {
   setCharts(newCharts);
 }
 
+// Create Tool Calls Chart (Horizontal Bar) - kept for backwards compatibility
+export function createToolCallsChart(container, toolCallStats) {
+  const ctx = document.createElement('canvas');
+  container.appendChild(ctx);
+
+  const data = toolCallStats.slice(0, 10); // Top 10 tools
+  const labels = data.map(t => t.tool_name);
+  const values = data.map(t => t.count);
+
+  const newCharts = { ...charts };
+  newCharts.toolCalls = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: dlpColors.slice(0, data.length),
+        borderRadius: 6,
+        barThickness: 20,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { font: { size: 11 } }
+        },
+        y: {
+          grid: { display: false },
+          ticks: { font: { size: 11 } }
+        }
+      }
+    }
+  });
+  setCharts(newCharts);
+}
+
+// Create Tool Insights Chart (Nested Doughnut / Sunburst)
+// Inner ring: tools, Outer ring: targets aligned with each tool's arc
+export function createToolInsightsChart(container, insights) {
+  const ctx = document.createElement('canvas');
+  container.appendChild(ctx);
+
+  const { tools } = insights;
+
+  // Inner ring: tools
+  const innerLabels = tools.map(t => t.tool_name);
+  const innerValues = tools.map(t => t.count);
+  const innerColors = tools.map((_, i) => dlpColors[i % dlpColors.length]);
+
+  // Outer ring: targets aligned with parent tool's arc
+  // Each tool's targets must sum to that tool's count to align properly
+  const outerLabels = [];
+  const outerValues = [];
+  const outerColors = [];
+  const outerMeta = []; // Store tool name for tooltip
+
+  tools.forEach((tool, toolIndex) => {
+    const baseColor = dlpColors[toolIndex % dlpColors.length];
+
+    if (tool.targets.length === 0) {
+      // No targets extracted - show single segment labeled "other"
+      outerLabels.push('other');
+      outerValues.push(tool.count);
+      outerColors.push(baseColor + 'AA');
+      outerMeta.push({ tool: tool.tool_name, target: 'other' });
+    } else {
+      // Add each target
+      let targetSum = 0;
+      tool.targets.forEach((target, targetIndex) => {
+        outerLabels.push(target.target);
+        outerValues.push(target.count);
+        // Vary opacity slightly for each target
+        const opacity = Math.max(60, 99 - targetIndex * 15).toString(16).padStart(2, '0');
+        outerColors.push(baseColor + opacity);
+        outerMeta.push({ tool: tool.tool_name, target: target.target });
+        targetSum += target.count;
+      });
+
+      // Add "other" segment for remaining count
+      const remaining = tool.count - targetSum;
+      if (remaining > 0) {
+        outerLabels.push('other');
+        outerValues.push(remaining);
+        outerColors.push(baseColor + '40');
+        outerMeta.push({ tool: tool.tool_name, target: 'other' });
+      }
+    }
+  });
+
+  const newCharts = { ...charts };
+  newCharts.toolInsights = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      datasets: [
+        {
+          // Outer ring - targets (larger circle)
+          label: 'Targets',
+          data: outerValues,
+          backgroundColor: outerColors,
+          borderWidth: 1,
+          borderColor: '#fff',
+        },
+        {
+          // Inner ring - tools (smaller circle)
+          label: 'Tools',
+          data: innerValues,
+          backgroundColor: innerColors,
+          borderWidth: 2,
+          borderColor: '#fff',
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '30%',
+      plugins: {
+        legend: {
+          display: true,
+          position: 'right',
+          labels: {
+            boxWidth: 12,
+            padding: 8,
+            font: { size: 11 },
+            color: '#e0e0e0',
+            generateLabels: () => {
+              // Only show tools in legend
+              return tools.map((tool, i) => ({
+                text: `${tool.tool_name} (${tool.count})`,
+                fillStyle: dlpColors[i % dlpColors.length],
+                strokeStyle: '#fff',
+                fontColor: '#e0e0e0',
+                lineWidth: 1,
+                index: i
+              }));
+            }
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              const datasetIndex = context.datasetIndex;
+              const index = context.dataIndex;
+              if (datasetIndex === 1) {
+                // Inner ring - tool
+                return `${tools[index].tool_name}: ${tools[index].count} calls`;
+              } else {
+                // Outer ring - target
+                const meta = outerMeta[index];
+                return `${meta.tool} → ${meta.target}: ${outerValues[index]}`;
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+  setCharts(newCharts);
+}
+
 // Create DLP Detections Chart (Doughnut)
 export function createDlpChart(container, detectionsByPattern) {
   const ctx = document.createElement('canvas');

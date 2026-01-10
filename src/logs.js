@@ -64,6 +64,7 @@ function renderLogCard(log, index, cardNum, total) {
         <button class="log-tab active" data-tab="data" data-index="${index}">Data</button>
         <button class="log-tab" data-tab="headers" data-index="${index}">Headers</button>
         <button class="log-tab" data-tab="dlp" data-index="${index}">Detections</button>
+        <button class="log-tab" data-tab="tools" data-index="${index}">Tool Calls</button>
       </div>
       <div class="log-card-subtabs">
         <button class="log-subtab active" data-subtab="request" data-index="${index}">Request</button>
@@ -146,6 +147,24 @@ async function updateCardContent(card, index) {
     } catch (err) {
       jsonPre.textContent = 'Error loading detections: ' + err;
     }
+  } else if (activeTab === 'tools') {
+    subtabsContainer.style.display = 'none';
+    // Fetch and display tool calls
+    try {
+      const toolCalls = await invoke('get_tool_calls_for_request', { requestId: log.id });
+      if (toolCalls.length === 0) {
+        jsonPre.textContent = 'No tool calls for this request.';
+      } else {
+        const formatted = toolCalls.map(tc => ({
+          name: tc.tool_name,
+          id: tc.tool_call_id,
+          input: JSON.parse(tc.tool_input || '{}')
+        }));
+        jsonPre.textContent = JSON.stringify(formatted, null, 2);
+      }
+    } catch (err) {
+      jsonPre.textContent = 'Error loading tool calls: ' + err;
+    }
   } else {
     subtabsContainer.style.display = '';
     let content;
@@ -182,6 +201,17 @@ async function copyLogData(index, tab) {
         original: d.original_value,
         replaced_with: d.placeholder,
         message_index: d.message_index
+      }));
+    } catch {
+      data = [];
+    }
+  } else if (tab === 'tools') {
+    try {
+      const toolCalls = await invoke('get_tool_calls_for_request', { requestId: log.id });
+      data = toolCalls.map(tc => ({
+        name: tc.tool_name,
+        id: tc.tool_call_id,
+        input: JSON.parse(tc.tool_input || '{}')
       }));
     } catch {
       data = [];

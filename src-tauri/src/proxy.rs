@@ -521,6 +521,10 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request) -> impl In
                     if !dlp_detections_clone.is_empty() {
                         let _ = db_clone.log_dlp_detections(request_id, &dlp_detections_clone);
                     }
+                    // Log tool calls if any
+                    if !resp_meta.tool_calls.is_empty() {
+                        let _ = db_clone.log_tool_calls(request_id, &resp_meta.tool_calls);
+                    }
                 }
             }
         };
@@ -604,6 +608,10 @@ async fn proxy_handler(State(state): State<ProxyState>, req: Request) -> impl In
                 // Log DLP detections if any
                 if !dlp_result.detections.is_empty() {
                     let _ = db.log_dlp_detections(request_id, &dlp_result.detections);
+                }
+                // Log tool calls if any
+                if !resp_meta.tool_calls.is_empty() {
+                    let _ = db.log_tool_calls(request_id, &resp_meta.tool_calls);
                 }
             }
         }
