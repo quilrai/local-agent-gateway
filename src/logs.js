@@ -412,3 +412,81 @@ export function initLogsSearch() {
   // Search on button click
   searchBtn.addEventListener('click', performSearch);
 }
+
+// Export logs to JSONL file
+export async function exportLogs() {
+  const exportBtn = document.getElementById('logs-export-btn');
+
+  try {
+    // Show loading state
+    exportBtn.disabled = true;
+    exportBtn.classList.add('loading');
+
+    // Fetch all logs matching current filters
+    const logs = await invoke('export_message_logs', {
+      timeRange: logsTimeRange,
+      backend: logsBackend,
+      model: logsModel,
+      dlpAction: logsDlpAction,
+      search: logsSearch
+    });
+
+    if (logs.length === 0) {
+      alert('No logs to export with current filters.');
+      return;
+    }
+
+    // Convert to JSONL format
+    const jsonlContent = logs.map(log => {
+      // Parse request/response bodies if they're JSON strings
+      let requestBody = log.request_body;
+      let responseBody = log.response_body;
+
+      try {
+        if (requestBody) requestBody = JSON.parse(requestBody);
+      } catch {}
+      try {
+        if (responseBody) responseBody = JSON.parse(responseBody);
+      } catch {}
+
+      return JSON.stringify({
+        id: log.id,
+        timestamp: log.timestamp,
+        backend: log.backend,
+        model: log.model,
+        input_tokens: log.input_tokens,
+        output_tokens: log.output_tokens,
+        latency_ms: log.latency_ms,
+        dlp_action: log.dlp_action,
+        request: requestBody,
+        response: responseBody
+      });
+    }).join('\n');
+
+    // Use Tauri dialog to save file
+    const { save } = window.__TAURI__.dialog;
+    const filePath = await save({
+      defaultPath: `logs_export_${new Date().toISOString().slice(0, 10)}.jsonl`,
+      filters: [{ name: 'JSONL', extensions: ['jsonl'] }]
+    });
+
+    if (filePath) {
+      // Write file using Tauri fs
+      const { writeTextFile } = window.__TAURI__.fs;
+      await writeTextFile(filePath, jsonlContent);
+      alert(`Exported ${logs.length} logs to ${filePath}`);
+    }
+  } catch (error) {
+    console.error('Export failed:', error);
+    alert('Export failed: ' + error);
+  } finally {
+    exportBtn.disabled = false;
+    exportBtn.classList.remove('loading');
+  }
+}
+
+// Initialize export button
+export function initLogsExport() {
+  const exportBtn = document.getElementById('logs-export-btn');
+  exportBtn.addEventListener('click', exportLogs);
+}

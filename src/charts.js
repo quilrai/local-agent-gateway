@@ -69,7 +69,7 @@ export function createTokenChart(container, requests) {
   container.appendChild(ctx);
 
   // Reverse to show oldest first (left to right)
-  const data = [...requests].reverse().slice(-15);
+  const data = [...requests].reverse();
   const labels = data.map((_, i) => `#${i + 1}`);
 
   const newCharts = { ...charts };

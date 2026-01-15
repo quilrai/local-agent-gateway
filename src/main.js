@@ -10,7 +10,8 @@ import {
   initLogsModelFilter,
   initLogsDlpFilter,
   initLogsTimeFilter,
-  initLogsSearch
+  initLogsSearch,
+  initLogsExport
 } from './logs.js';
 import { initSettings } from './settings.js';
 import { initBackends } from './backends.js';
@@ -36,6 +37,7 @@ window.addEventListener('DOMContentLoaded', () => {
   initLogsModelFilter();
   initLogsDlpFilter();
   initLogsSearch();
+  initLogsExport();
   loadLogsBackends();
   loadLogsModels();
 

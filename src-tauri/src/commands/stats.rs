@@ -193,7 +193,7 @@ pub fn get_dashboard_stats(time_range: String, backend: String) -> Result<Dashbo
             cache_creation: 0,
         });
 
-    // Get recent requests (last 20) for token chart
+    // Get recent requests for token chart
     let mut recent_stmt = conn
         .prepare(&format!(
             "SELECT id, timestamp, COALESCE(model, 'unknown'), input_tokens, output_tokens,
@@ -201,8 +201,7 @@ pub fn get_dashboard_stats(time_range: String, backend: String) -> Result<Dashbo
                     COALESCE(stop_reason, 'unknown'), has_thinking
              FROM requests
              WHERE timestamp >= ?1{}
-             ORDER BY id DESC
-             LIMIT 20",
+             ORDER BY id DESC",
             backend_filter
         ))
         .map_err(|e| e.to_string())?;
@@ -226,14 +225,13 @@ pub fn get_dashboard_stats(time_range: String, backend: String) -> Result<Dashbo
         .filter_map(|r| r.ok())
         .collect();
 
-    // Get latency points for chart (last 50)
+    // Get latency points for chart
     let mut latency_stmt = conn
         .prepare(&format!(
             "SELECT id, latency_ms
              FROM requests
              WHERE latency_ms > 0 AND timestamp >= ?1{}
-             ORDER BY id DESC
-             LIMIT 50",
+             ORDER BY id DESC",
             backend_filter
         ))
         .map_err(|e| e.to_string())?;
@@ -416,6 +414,100 @@ pub fn get_message_logs(
         .collect();
 
     Ok(PaginatedLogs { logs, total })
+}
+
+#[derive(Serialize)]
+pub struct ExportLog {
+    pub id: i64,
+    pub timestamp: String,
+    pub backend: String,
+    pub model: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub latency_ms: i64,
+    pub request_body: Option<String>,
+    pub response_body: Option<String>,
+    pub dlp_action: i64,
+}
+
+#[tauri::command]
+pub fn export_message_logs(
+    time_range: String,
+    backend: String,
+    model: String,
+    dlp_action: String,
+    search: String,
+) -> Result<Vec<ExportLog>, String> {
+    let conn = open_connection().map_err(|e| e.to_string())?;
+
+    let hours = time_range_to_hours(&time_range);
+    let cutoff_ts = get_cutoff_timestamp(hours);
+
+    let backend_filter = if backend == "all" {
+        String::new()
+    } else {
+        format!(" AND backend = '{}'", backend.replace('\'', "''"))
+    };
+
+    let model_filter = if model == "all" {
+        String::new()
+    } else {
+        format!(" AND COALESCE(model, 'unknown') = '{}'", model.replace('\'', "''"))
+    };
+
+    let dlp_filter = match dlp_action.as_str() {
+        "passed" => format!(" AND COALESCE(dlp_action, 0) = {}", DLP_ACTION_PASSED),
+        "redacted" => format!(" AND dlp_action = {}", DLP_ACTION_REDACTED),
+        "blocked" => format!(" AND dlp_action = {}", DLP_ACTION_BLOCKED),
+        "ratelimited" => format!(" AND dlp_action = {}", DLP_ACTION_RATELIMITED),
+        "notify-ratelimit" => format!(" AND dlp_action = {}", DLP_ACTION_NOTIFY_RATELIMIT),
+        _ => String::new(),
+    };
+
+    let search_filter = if search.trim().is_empty() {
+        String::new()
+    } else {
+        let escaped_search = search.replace('\'', "''").replace('%', "\\%").replace('_', "\\_");
+        format!(
+            " AND (LOWER(request_body) LIKE LOWER('%{}%') ESCAPE '\\' OR LOWER(response_body) LIKE LOWER('%{}%') ESCAPE '\\')",
+            escaped_search, escaped_search
+        )
+    };
+
+    let filters = format!("{}{}{}{}", backend_filter, model_filter, dlp_filter, search_filter);
+
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT id, timestamp, backend, COALESCE(model, 'unknown'),
+                    input_tokens, output_tokens, latency_ms, request_body, response_body,
+                    COALESCE(dlp_action, 0)
+             FROM requests
+             WHERE timestamp >= ?1{}
+             ORDER BY id DESC",
+            filters
+        ))
+        .map_err(|e| e.to_string())?;
+
+    let logs: Vec<ExportLog> = stmt
+        .query_map([&cutoff_ts], |row| {
+            Ok(ExportLog {
+                id: row.get(0)?,
+                timestamp: row.get(1)?,
+                backend: row.get(2)?,
+                model: row.get(3)?,
+                input_tokens: row.get(4)?,
+                output_tokens: row.get(5)?,
+                latency_ms: row.get(6)?,
+                request_body: row.get(7)?,
+                response_body: row.get(8)?,
+                dlp_action: row.get(9)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(logs)
 }
 
 #[tauri::command]

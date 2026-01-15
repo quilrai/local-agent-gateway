@@ -31,6 +31,30 @@
   font-weight: 500;
 }
 
+.card-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.expand-btn {
+  background: transparent;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  color: #888;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.expand-btn:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
 .card-body {
   padding: 20px;
 }
@@ -633,4 +657,70 @@
 
 .toggle-switch input:checked + .toggle-slider:before {
   transform: translateX(22px);
+}
+
+/* ============ Chart Fullscreen Modal ============ */
+
+.chart-fullscreen-modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 2000;
+  align-items: center;
+  justify-content: center;
+}
+
+.chart-fullscreen-modal.show {
+  display: flex;
+}
+
+.chart-fullscreen-content {
+  background: #1a1a2e;
+  border-radius: 12px;
+  width: 95vw;
+  height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+.chart-fullscreen-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid #333;
+}
+
+.chart-fullscreen-header h3 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #fff;
+  margin: 0;
+}
+
+.chart-fullscreen-close {
+  background: none;
+  border: none;
+  font-size: 2rem;
+  cursor: pointer;
+  color: #888;
+  line-height: 1;
+  padding: 0;
+  transition: color 0.2s;
+}
+
+.chart-fullscreen-close:hover {
+  color: #fff;
+}
+
+.chart-fullscreen-body {
+  flex: 1;
+  padding: 24px;
+  position: relative;
+  min-height: 0;
 }

@@ -4,9 +4,15 @@ import {
   setCurrentTimeRange,
   currentBackend,
   setCurrentBackend,
-  formatNumber
+  formatNumber,
+  colors,
+  formatLatency,
+  shortenModel
 } from './utils.js';
 import { destroyCharts, createModelsChart, createTokenChart, createLatencyChart, createDlpChart, createToolInsightsChart } from './charts.js';
+
+// Store chart creation functions for fullscreen recreation
+let chartData = {};
 
 // Render dashboard HTML
 function renderDashboard(data, dlpStats, toolInsights) {
@@ -19,8 +25,11 @@ function renderDashboard(data, dlpStats, toolInsights) {
       <!-- Models Chart -->
       <div class="card">
         <div class="card-header">
-          Models Used
-          <span class="badge">${models.length} models</span>
+          <span>Models Used</span>
+          <div class="card-header-actions">
+            <span class="badge">${models.length} models</span>
+            <button class="expand-btn" data-chart="models" title="Expand"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg></button>
+          </div>
         </div>
         <div class="card-body chart-container-sm" id="models-chart"></div>
       </div>
@@ -91,8 +100,11 @@ function renderDashboard(data, dlpStats, toolInsights) {
       <!-- Latency Chart -->
       <div class="card">
         <div class="card-header">
-          Latency Trend
-          <span class="badge">last ${latency_points.length}</span>
+          <span>Latency Trend</span>
+          <div class="card-header-actions">
+            <span class="badge">${latency_points.length} requests</span>
+            <button class="expand-btn" data-chart="latency" title="Expand"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg></button>
+          </div>
         </div>
         <div class="card-body chart-container-sm" id="latency-chart"></div>
       </div>
@@ -102,8 +114,11 @@ function renderDashboard(data, dlpStats, toolInsights) {
     <div class="charts-grid">
       <div class="card full-width">
         <div class="card-header">
-          Token Usage Per Request
-          <span class="badge">last ${Math.min(recent_requests.length, 15)} requests</span>
+          <span>Token Usage Per Request</span>
+          <div class="card-header-actions">
+            <span class="badge">${recent_requests.length} requests</span>
+            <button class="expand-btn" data-chart="tokens" title="Expand"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg></button>
+          </div>
         </div>
         <div class="card-body chart-container" id="token-chart"></div>
       </div>
@@ -113,8 +128,11 @@ function renderDashboard(data, dlpStats, toolInsights) {
     <div class="charts-grid">
       <div class="card full-width">
         <div class="card-header">
-          Tool Insights
-          <span class="badge">${toolInsights.tools.reduce((sum, t) => sum + t.count, 0)} calls / ${toolInsights.tools.length} tools</span>
+          <span>Tool Insights</span>
+          <div class="card-header-actions">
+            <span class="badge">${toolInsights.tools.reduce((sum, t) => sum + t.count, 0)} calls / ${toolInsights.tools.length} tools</span>
+            <button class="expand-btn" data-chart="toolInsights" title="Expand"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg></button>
+          </div>
         </div>
         <div class="card-body chart-container-lg" id="tool-insights-chart">
           ${toolInsights.tools.length === 0 ? '<p class="empty-text">No tool calls</p>' : ''}
@@ -126,13 +144,27 @@ function renderDashboard(data, dlpStats, toolInsights) {
     <div class="charts-grid">
       <div class="card full-width">
         <div class="card-header">
-          Detections
+          <span>Detections</span>
+          <div class="card-header-actions">
+            <button class="expand-btn" data-chart="dlp" title="Expand"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg></button>
+          </div>
         </div>
         <div class="card-body">
           <div class="dlp-chart-container" id="dlp-chart">
             ${(!dlpStats || dlpStats.detections_by_pattern.length === 0) ? '<p class="empty-text">No detections</p>' : ''}
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Fullscreen Chart Modal -->
+    <div class="chart-fullscreen-modal" id="chart-fullscreen-modal">
+      <div class="chart-fullscreen-content">
+        <div class="chart-fullscreen-header">
+          <h3 id="chart-fullscreen-title">Chart</h3>
+          <button class="chart-fullscreen-close" id="chart-fullscreen-close">&times;</button>
+        </div>
+        <div class="chart-fullscreen-body" id="chart-fullscreen-body"></div>
       </div>
     </div>
   `;
@@ -168,6 +200,15 @@ export async function loadDashboard() {
 
     content.innerHTML = renderDashboard(data, dlpStats, toolInsights);
 
+    // Store chart data for fullscreen recreation
+    chartData = {
+      models: data.models,
+      requests: data.recent_requests,
+      latencyPoints: data.latency_points,
+      toolInsights: toolInsights,
+      dlpStats: dlpStats
+    };
+
     // Create charts after DOM is updated
     setTimeout(() => {
       if (data.models.length > 0) {
@@ -185,6 +226,9 @@ export async function loadDashboard() {
       if (dlpStats && dlpStats.detections_by_pattern.length > 0) {
         createDlpChart(document.getElementById('dlp-chart'), dlpStats.detections_by_pattern);
       }
+
+      // Setup expand button handlers
+      setupExpandButtons();
     }, 0);
 
   } catch (error) {
@@ -229,5 +273,356 @@ export function initTimeFilter() {
   select.addEventListener('change', () => {
     setCurrentTimeRange(select.value);
     loadDashboard();
+  });
+}
+
+// Chart title mapping
+const chartTitles = {
+  models: 'Models Used',
+  tokens: 'Token Usage Per Request',
+  latency: 'Latency Trend',
+  toolInsights: 'Tool Insights',
+  dlp: 'Detections'
+};
+
+// Fullscreen chart instance
+let fullscreenChart = null;
+
+// Setup expand button handlers
+function setupExpandButtons() {
+  const expandButtons = document.querySelectorAll('.expand-btn');
+  const modal = document.getElementById('chart-fullscreen-modal');
+  const closeBtn = document.getElementById('chart-fullscreen-close');
+  const body = document.getElementById('chart-fullscreen-body');
+  const title = document.getElementById('chart-fullscreen-title');
+
+  expandButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const chartType = btn.dataset.chart;
+      openFullscreenChart(chartType, modal, body, title);
+    });
+  });
+
+  // Close modal handlers
+  closeBtn.addEventListener('click', () => closeFullscreenModal(modal, body));
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeFullscreenModal(modal, body);
+  });
+
+  // ESC key to close
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modal.classList.contains('show')) {
+      closeFullscreenModal(modal, body);
+    }
+  });
+}
+
+// Open fullscreen chart
+function openFullscreenChart(chartType, modal, body, titleEl) {
+  titleEl.textContent = chartTitles[chartType] || 'Chart';
+  body.innerHTML = '';
+
+  const canvas = document.createElement('canvas');
+  body.appendChild(canvas);
+
+  modal.classList.add('show');
+
+  // Create chart after modal is visible
+  setTimeout(() => {
+    switch (chartType) {
+      case 'models':
+        if (chartData.models?.length > 0) {
+          fullscreenChart = createFullscreenModelsChart(canvas, chartData.models);
+        }
+        break;
+      case 'tokens':
+        if (chartData.requests?.length > 0) {
+          fullscreenChart = createFullscreenTokenChart(canvas, chartData.requests);
+        }
+        break;
+      case 'latency':
+        if (chartData.latencyPoints?.length > 0) {
+          fullscreenChart = createFullscreenLatencyChart(canvas, chartData.latencyPoints);
+        }
+        break;
+      case 'toolInsights':
+        if (chartData.toolInsights?.tools?.length > 0) {
+          fullscreenChart = createFullscreenToolInsightsChart(canvas, chartData.toolInsights);
+        }
+        break;
+      case 'dlp':
+        if (chartData.dlpStats?.detections_by_pattern?.length > 0) {
+          fullscreenChart = createFullscreenDlpChart(canvas, chartData.dlpStats.detections_by_pattern);
+        }
+        break;
+    }
+  }, 50);
+}
+
+// Close fullscreen modal
+function closeFullscreenModal(modal, body) {
+  modal.classList.remove('show');
+  if (fullscreenChart) {
+    fullscreenChart.destroy();
+    fullscreenChart = null;
+  }
+  body.innerHTML = '';
+}
+
+// Fullscreen chart creation functions (duplicated with larger dimensions)
+const dlpColors = [
+  colors.primary, colors.secondary, colors.warning, colors.pink, colors.blue,
+  '#8b5cf6', '#14b8a6', '#f97316', '#ef4444', '#84cc16'
+];
+
+function createFullscreenModelsChart(canvas, models) {
+  const data = models.slice(0, 10);
+  const labels = data.map(m => shortenModel(m.model));
+  const values = data.map(m => m.count);
+
+  return new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: dlpColors.slice(0, data.length),
+        borderRadius: 6,
+        barThickness: 32,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 14 } } },
+        y: { grid: { display: false }, ticks: { font: { size: 14 } } }
+      }
+    }
+  });
+}
+
+function createFullscreenTokenChart(canvas, requests) {
+  const data = [...requests].reverse();
+  const labels = data.map((_, i) => `#${i + 1}`);
+
+  return new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Input', data: data.map(r => r.input_tokens), backgroundColor: colors.primary, borderRadius: 4 },
+        { label: 'Output', data: data.map(r => r.output_tokens), backgroundColor: colors.secondary, borderRadius: 4 },
+        { label: 'Cache Read', data: data.map(r => r.cache_read_tokens), backgroundColor: colors.warning, borderRadius: 4 }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top', labels: { boxWidth: 14, padding: 20, font: { size: 14 } } }
+      },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { font: { size: 12 } } },
+        y: { stacked: true, grid: { color: '#f0f0f0' }, ticks: { font: { size: 12 }, callback: v => formatNumber(v) } }
+      }
+    }
+  });
+}
+
+function createFullscreenLatencyChart(canvas, latencyPoints) {
+  const data = [...latencyPoints].reverse();
+  const labels = data.map((_, i) => i + 1);
+  const values = data.map(p => p.latency_ms);
+
+  return new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Latency (ms)',
+        data: values,
+        borderColor: colors.primary,
+        backgroundColor: 'rgba(99, 102, 241, 0.1)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 3,
+        pointHoverRadius: 6,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 12 } } },
+        y: { grid: { color: '#f0f0f0' }, ticks: { font: { size: 12 }, callback: v => formatLatency(v) } }
+      }
+    }
+  });
+}
+
+function createFullscreenToolInsightsChart(canvas, insights) {
+  const { tools } = insights;
+  const innerLabels = tools.map(t => t.tool_name);
+  const innerValues = tools.map(t => t.count);
+  const innerColors = tools.map((_, i) => dlpColors[i % dlpColors.length]);
+
+  const outerLabels = [];
+  const outerValues = [];
+  const outerColors = [];
+  const outerMeta = [];
+
+  tools.forEach((tool, toolIndex) => {
+    const baseColor = dlpColors[toolIndex % dlpColors.length];
+    if (tool.targets.length === 0) {
+      outerLabels.push('other');
+      outerValues.push(tool.count);
+      outerColors.push(baseColor + 'AA');
+      outerMeta.push({ tool: tool.tool_name, target: 'other' });
+    } else {
+      let targetSum = 0;
+      tool.targets.forEach((target, targetIndex) => {
+        outerLabels.push(target.target);
+        outerValues.push(target.count);
+        const opacity = Math.max(60, 99 - targetIndex * 15).toString(16).padStart(2, '0');
+        outerColors.push(baseColor + opacity);
+        outerMeta.push({ tool: tool.tool_name, target: target.target });
+        targetSum += target.count;
+      });
+      const remaining = tool.count - targetSum;
+      if (remaining > 0) {
+        outerLabels.push('other');
+        outerValues.push(remaining);
+        outerColors.push(baseColor + '40');
+        outerMeta.push({ tool: tool.tool_name, target: 'other' });
+      }
+    }
+  });
+
+  const labelPlugin = {
+    id: 'segmentLabels',
+    afterDraw: (chart) => {
+      const ctx = chart.ctx;
+      ctx.save();
+      chart.data.datasets.forEach((dataset, datasetIndex) => {
+        const meta = chart.getDatasetMeta(datasetIndex);
+        meta.data.forEach((arc, index) => {
+          const { x, y, startAngle, endAngle, innerRadius, outerRadius } = arc.getProps(['x', 'y', 'startAngle', 'endAngle', 'innerRadius', 'outerRadius']);
+          const angleSpan = endAngle - startAngle;
+          const midAngle = startAngle + angleSpan / 2;
+          if (angleSpan < 0.26) return;
+          const midRadius = (innerRadius + outerRadius) / 2;
+          const labelX = x + Math.cos(midAngle) * midRadius;
+          const labelY = y + Math.sin(midAngle) * midRadius;
+          let label = datasetIndex === 1 ? innerLabels[index] : outerLabels[index];
+          const arcLength = angleSpan * midRadius;
+          const fontSize = datasetIndex === 1 ? 13 : 11;
+          ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+          const maxChars = Math.floor(arcLength / (fontSize * 0.6));
+          if (label.length > maxChars && maxChars > 3) {
+            label = label.substring(0, maxChars - 2) + '..';
+          } else if (maxChars <= 3) return;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#fff';
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+          ctx.shadowBlur = 3;
+          ctx.fillText(label, labelX, labelY);
+        });
+      });
+      ctx.restore();
+    }
+  };
+
+  return new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      datasets: [
+        { label: 'Targets', data: outerValues, backgroundColor: outerColors, borderWidth: 1, borderColor: '#fff' },
+        { label: 'Tools', data: innerValues, backgroundColor: innerColors, borderWidth: 2, borderColor: '#fff' }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '30%',
+      plugins: {
+        legend: {
+          display: true,
+          position: 'right',
+          labels: {
+            boxWidth: 14,
+            padding: 12,
+            font: { size: 13 },
+            color: '#e0e0e0',
+            generateLabels: () => tools.map((tool, i) => ({
+              text: `${tool.tool_name} (${tool.count})`,
+              fillStyle: dlpColors[i % dlpColors.length],
+              strokeStyle: '#fff',
+              fontColor: '#e0e0e0',
+              lineWidth: 1,
+              index: i
+            }))
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              if (context.datasetIndex === 1) return `${tools[context.dataIndex].tool_name}: ${tools[context.dataIndex].count} calls`;
+              const meta = outerMeta[context.dataIndex];
+              return `${meta.tool} → ${meta.target}: ${outerValues[context.dataIndex]}`;
+            }
+          }
+        }
+      }
+    },
+    plugins: [labelPlugin]
+  });
+}
+
+function createFullscreenDlpChart(canvas, detectionsByPattern) {
+  const labels = detectionsByPattern.map(p => p.pattern_name);
+  const values = detectionsByPattern.map(p => p.count);
+  const backgroundColors = detectionsByPattern.map((_, i) => dlpColors[i % dlpColors.length]);
+
+  return new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      labels,
+      datasets: [{ data: values, backgroundColor: backgroundColors, borderWidth: 2, borderColor: '#fff' }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: {
+            boxWidth: 16,
+            padding: 16,
+            font: { size: 14 },
+            generateLabels: (chart) => chart.data.labels.map((label, i) => ({
+              text: `${label} (${chart.data.datasets[0].data[i]})`,
+              fillStyle: chart.data.datasets[0].backgroundColor[i],
+              strokeStyle: '#fff',
+              lineWidth: 2,
+              index: i
+            }))
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              const total = context.dataset.data.reduce((a, b) => a + b, 0);
+              const pct = Math.round((context.parsed / total) * 100);
+              return `${context.label}: ${context.parsed} (${pct}%)`;
+            }
+          }
+        }
+      }
+    }
   });
 }

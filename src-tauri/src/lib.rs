@@ -81,6 +81,8 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             // Spawn reverse proxy server with app handle for events
             let app_handle = app.handle().clone();
@@ -132,6 +134,7 @@ pub fn run() {
             commands::get_backends,
             commands::get_models,
             commands::get_message_logs,
+            commands::export_message_logs,
             commands::get_port_setting,
             commands::get_proxy_status,
             commands::save_port_setting,
