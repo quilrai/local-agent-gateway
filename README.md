@@ -1,26 +1,22 @@
 # LLMWatcher
 
-https://quilrai.github.io/LLMWatcher/
+Download for Mac (Apple silicon) - [Latest DMG](https://github.com/quilrai/LLMWatcher/releases/latest/download/LLMWatcher-Apple-Silicon.dmg)
+
+Download Windows (Coming Soon)
 
 Desktop App for monitoring and controlling llm requests (with focus on coding agents)
 
-## Features
-
-- Fully local (on-device), desktop app
-- Pass through proxy server for llm requests
-- Block or redact requests with sensitive information (pre-defined patterns and user defined patterns)
-- Warn or Block for high token count requests
-- Customizable rate limiting
-- Searchable Full request log with response
+Fully local (on-device), desktop app for
+- block or get notified on high request or token usage by agents
+- searchable complete history for LLM requests by agents
+- pass-through proxy server for LLM requests
+- block or redact requests with sensitive information (pre-defined and user-defined patterns)
+- codex, claude, cursor supported out of the box with tool call and token monitoring
 
 ## How it works
 
-- The app starts a local pass through server
-- claude code, codex and many other coding agents support customizable base url
-- with base url set for these agents, requests will be passed through the local server running in the app
-- patterns, blocking etc settings are applied (if configured) in the app
-
-**cursor** Cursor does not provide a way to monitor / control data via network. For cursor, integration with hooks is implemented. note that cursor does not support auto redaction, exposing exact token counts etc
+- **codex and claude code**: Codex and Claude Code support a configurable base URL, which lets LLMWatcher route all requests through its local server.
+- **cursor**: Cursor has limited hooks that LLMWatcher uses to block or monitor requests (auto-redaction and exact token counts are not supported).
 
 **Custom LLM endpoints**
 - In the app, you can configure a custom chat completions endpoint
