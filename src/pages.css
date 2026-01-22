@@ -302,6 +302,14 @@
   background: #fff;
 }
 
+/* Search highlight styling */
+.search-highlight {
+  background: #fef08a;
+  color: #854d0e;
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+
 /* ============ Logs Toolbar & Pagination ============ */
 
 #logs-tab .page-header {

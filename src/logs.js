@@ -21,6 +21,25 @@ import {
   escapeHtml
 } from './utils.js';
 
+// Highlight search terms in text (case-insensitive)
+function highlightSearchTerms(text, searchTerm) {
+  if (!searchTerm || !searchTerm.trim()) {
+    return escapeHtml(text);
+  }
+
+  // Escape HTML first
+  const escapedText = escapeHtml(text);
+
+  // Escape regex special characters in search term
+  const escapedSearchTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // Create case-insensitive regex
+  const regex = new RegExp(`(${escapedSearchTerm})`, 'gi');
+
+  // Replace matches with highlighted version
+  return escapedText.replace(regex, '<mark class="search-highlight">$1</mark>');
+}
+
 // Get DLP status info
 function getDlpStatus(dlpAction) {
   switch (dlpAction) {
@@ -77,7 +96,7 @@ function renderLogCard(log, index, cardNum, total) {
         </button>
       </div>
       <div class="log-card-content">
-        <pre class="log-json" data-index="${index}">${escapeHtml(formatJson(log.request_body))}</pre>
+        <pre class="log-json" data-index="${index}">${highlightSearchTerms(formatJson(log.request_body), logsSearch)}</pre>
       </div>
     </div>
   `;
@@ -173,7 +192,8 @@ async function updateCardContent(card, index) {
     } else {
       content = activeSubtab === 'request' ? log.request_headers : log.response_headers;
     }
-    jsonPre.textContent = formatJson(content);
+    // Use innerHTML with highlighting for data/headers tabs
+    jsonPre.innerHTML = highlightSearchTerms(formatJson(content), logsSearch);
   }
 }
 
@@ -223,6 +243,27 @@ async function copyLogData(index, tab) {
   }).catch(err => {
     console.error('Failed to copy:', err);
   });
+}
+
+// Scroll to the first search highlight
+function scrollToFirstHighlight(container) {
+  if (!logsSearch || !logsSearch.trim()) return;
+
+  const firstHighlight = container.querySelector('.search-highlight');
+  if (firstHighlight) {
+    // Scroll the card's content area to show the highlight
+    const cardContent = firstHighlight.closest('.log-card-content');
+    if (cardContent) {
+      // Scroll within the card content
+      firstHighlight.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    // Also scroll the card into view in the main container
+    const card = firstHighlight.closest('.log-card');
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
 }
 
 // Attach event handlers to log cards
@@ -284,6 +325,9 @@ export async function loadMessageLogs() {
     content.innerHTML = renderLogsCards(result.logs, result.total);
     attachCardHandlers(content);
     attachPaginationHandlers();
+
+    // Scroll to first search match if searching
+    scrollToFirstHighlight(content);
   } catch (error) {
     content.innerHTML = `
       <div class="empty-state">

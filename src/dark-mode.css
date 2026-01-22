@@ -228,6 +228,11 @@
     color: #e8e8e8;
   }
 
+  .search-highlight {
+    background: #854d0e;
+    color: #fef08a;
+  }
+
   /* Pagination */
   #logs-tab .page-header {
     background: #0f0f1a;
