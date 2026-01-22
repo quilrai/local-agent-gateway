@@ -70,9 +70,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // GitHub links
   document.getElementById('starGithub').addEventListener('click', () => {
-    openUrl('https://github.com/quilrai/local-agent-gateway');
+    openUrl('https://github.com/quilrai/LLMWatcher');
   });
   document.getElementById('reportIssue').addEventListener('click', () => {
-    openUrl('https://github.com/quilrai/local-agent-gateway/issues');
+    openUrl('https://github.com/quilrai/LLMWatcher/issues');
   });
 });

@@ -918,8 +918,8 @@ fn remove_env_from_config(path: &str, env_var: &str) -> Result<(), String> {
     for line in content.lines() {
         let trimmed = line.trim();
 
-        // Skip the "# Agent Gateway" comment if followed by the env var
-        if trimmed == "# Agent Gateway" {
+        // Skip the "# LLMwatcher" comment if followed by the env var
+        if trimmed == "# LLMwatcher" {
             prev_was_comment = true;
             continue;
         }
@@ -931,7 +931,7 @@ fn remove_env_from_config(path: &str, env_var: &str) -> Result<(), String> {
 
         // If previous was comment but this isn't the env var, add back the comment
         if prev_was_comment {
-            new_lines.push("# Agent Gateway");
+            new_lines.push("# LLMwatcher");
             prev_was_comment = false;
         }
 
@@ -982,7 +982,7 @@ fn update_shell_config(path: &str, export_line: &str, env_var: &str) -> Result<(
     if !found {
         // Add new line at the end
         new_lines.push(String::new()); // Empty line before
-        new_lines.push("# Agent Gateway".to_string());
+        new_lines.push("# LLMwatcher".to_string());
         new_lines.push(export_line.to_string());
     }
 

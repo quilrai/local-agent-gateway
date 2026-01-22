@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Agent Gateway",
+  "productName": "LLMwatcher",
   "version": "0.1.0",
-  "identifier": "ai.quilr.agent-gateway",
+  "identifier": "ai.quilr.llmwatcher",
   "build": {
     "frontendDist": "../src"
   },
@@ -12,14 +12,14 @@
     "windows": [
       {
         "label": "main",
-        "title": "Agent Gateway",
+        "title": "LLMwatcher",
         "width": 800,
         "height": 600,
         "visible": true
       },
       {
         "label": "tray_popup",
-        "title": "Agent Gateway",
+        "title": "LLMwatcher",
         "url": "tray.html",
         "width": 320,
         "height": 420,
