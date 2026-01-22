@@ -1,6 +1,6 @@
 # LLMWatcher
 
-**[Download for Mac (Apple silicon) - Latest DMG](https://github.com/quilrai/LLMWatcher/releases/latest/download/LLMWatcher-Apple-Silicon.dmg)**
+**[Download for Mac (Apple silicon) - 12MB](https://github.com/quilrai/LLMWatcher/releases/latest/download/LLMWatcher-Apple-Silicon.dmg)**
 
 **Download Windows (Coming Soon)**
 
