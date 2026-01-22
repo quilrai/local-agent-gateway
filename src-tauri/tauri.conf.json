@@ -22,7 +22,7 @@
         "title": "Agent Gateway",
         "url": "tray.html",
         "width": 320,
-        "height": 280,
+        "height": 420,
         "visible": false,
         "decorations": false,
         "skipTaskbar": true,

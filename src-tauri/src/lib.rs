@@ -168,6 +168,7 @@ pub fn run() {
             show_main_window,
             quit_app,
             commands::get_tray_stats,
+            commands::get_tray_token_timeline,
             // Main app commands
             commands::greet,
             commands::get_dashboard_stats,

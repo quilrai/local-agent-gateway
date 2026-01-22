@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Agent Gateway</title>
+  <script src="lib/chart.min.js"></script>
   <style>
     * {
       margin: 0;
@@ -155,6 +156,24 @@
       to { transform: rotate(360deg); }
     }
 
+    .chart-section {
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #2d2d44;
+    }
+
+    .chart-container {
+      height: 120px;
+      position: relative;
+    }
+
+    .chart-empty {
+      text-align: center;
+      color: #666;
+      padding: 20px 0;
+      font-size: 10px;
+    }
+
     .links {
       display: flex;
       gap: 8px;
@@ -200,6 +219,17 @@
       </div>
     </div>
 
+    <div class="chart-section">
+      <div class="header">
+        <span class="title">Input Tokens Per Request</span>
+      </div>
+      <div id="chartContent">
+        <div class="chart-container">
+          <canvas id="tokenChart"></canvas>
+        </div>
+      </div>
+    </div>
+
     <div class="links">
       <button class="btn-link" id="starGithub">Star on GitHub</button>
       <button class="btn-link" id="reportIssue">Report Issue</button>
@@ -211,10 +241,17 @@
     const { getCurrentWindow } = window.__TAURI__.window;
     const { openUrl } = window.__TAURI__.opener;
 
+    let tokenChart = null;
+
     function formatNumber(num) {
       if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
       if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
       return num.toString();
+    }
+
+    function formatTime(timestamp) {
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
     async function loadStats() {
@@ -257,6 +294,115 @@
       }
     }
 
+    // Colors for different backends
+    const backendColors = [
+      { border: '#8884d8', bg: 'rgba(136, 132, 216, 0.2)' },  // Purple
+      { border: '#82ca9d', bg: 'rgba(130, 202, 157, 0.2)' },  // Green
+      { border: '#ffc658', bg: 'rgba(255, 198, 88, 0.2)' },   // Yellow
+      { border: '#ff7c7c', bg: 'rgba(255, 124, 124, 0.2)' },  // Red
+      { border: '#4a9eff', bg: 'rgba(74, 158, 255, 0.2)' },   // Blue
+      { border: '#a8d8ea', bg: 'rgba(168, 216, 234, 0.2)' },  // Cyan
+    ];
+
+    async function loadTokenChart() {
+      try {
+        const timeline = await invoke('get_tray_token_timeline');
+        const chartContent = document.getElementById('chartContent');
+
+        if (!timeline.backends || timeline.backends.length === 0) {
+          chartContent.innerHTML = '<div class="chart-empty">No request data available</div>';
+          return;
+        }
+
+        // Destroy existing chart if any
+        if (tokenChart) {
+          tokenChart.destroy();
+          tokenChart = null;
+        }
+
+        // Collect all unique timestamps and sort them
+        const allTimestamps = new Set();
+        timeline.backends.forEach(b => b.points.forEach(p => allTimestamps.add(p.timestamp)));
+        const sortedTimestamps = Array.from(allTimestamps).sort();
+
+        // Create datasets for each backend
+        const datasets = timeline.backends.map((backend, index) => {
+          const color = backendColors[index % backendColors.length];
+
+          // Create a map for quick lookup
+          const pointMap = new Map(backend.points.map(p => [p.timestamp, p.input_tokens]));
+
+          // Align data to common timestamps (null for missing points)
+          const data = sortedTimestamps.map(ts => pointMap.get(ts) || null);
+
+          return {
+            label: backend.backend,
+            data: data,
+            borderColor: color.border,
+            backgroundColor: color.bg,
+            fill: false,
+            tension: 0.3,
+            pointRadius: 2,
+            pointHoverRadius: 4,
+            borderWidth: 2,
+            spanGaps: true,
+          };
+        });
+
+        const ctx = document.getElementById('tokenChart');
+        const labels = sortedTimestamps.map(ts => formatTime(ts));
+
+        tokenChart = new Chart(ctx, {
+          type: 'line',
+          data: { labels, datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+              mode: 'index',
+              intersect: false,
+            },
+            plugins: {
+              legend: {
+                display: true,
+                position: 'top',
+                labels: {
+                  boxWidth: 8,
+                  boxHeight: 8,
+                  padding: 6,
+                  font: { size: 9 },
+                  color: '#ccc',
+                  usePointStyle: true,
+                }
+              },
+              tooltip: {
+                callbacks: {
+                  label: (context) => context.dataset.label + ': ' + formatNumber(context.parsed.y) + ' tokens'
+                }
+              }
+            },
+            scales: {
+              x: {
+                display: false,
+              },
+              y: {
+                grid: { color: '#2d2d44' },
+                ticks: {
+                  font: { size: 9 },
+                  color: '#888',
+                  callback: v => formatNumber(v)
+                }
+              }
+            }
+          }
+        });
+      } catch (err) {
+        console.error('Failed to load token chart:', err);
+        document.getElementById('chartContent').innerHTML =
+          '<div class="chart-empty">Failed to load chart</div>';
+      }
+    }
+
     document.getElementById('showApp').addEventListener('click', async () => {
       await invoke('show_main_window');
       await getCurrentWindow().hide();
@@ -279,8 +425,9 @@
       await getCurrentWindow().hide();
     });
 
-    // Load stats when window opens
+    // Load stats and chart when window opens
     loadStats();
+    loadTokenChart();
   </script>
 </body>
 </html>
